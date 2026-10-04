@@ -31,7 +31,7 @@ export LIBREDB_STUDIO_LOCK_TIMEOUT=${LIBREDB_STUDIO_LOCK_TIMEOUT:="120"}
 export LIBREDB_STUDIO_PROPERTIES="_libredb-studio"
 
 export LIBREDB_STUDIO_DEFAULT_APP="libredb-studio"
-export LIBREDB_STUDIO_DEFAULT_IMAGE="ghcr.io/libredb/libredb-studio:0.17.0"
+export LIBREDB_STUDIO_DEFAULT_IMAGE="ghcr.io/libredb/libredb-studio:0.18.0"
 export LIBREDB_STUDIO_NETWORK="libredb-studio"
 
 # The image runs as nextjs (1001) in group nodejs (1001).

@@ -19,7 +19,7 @@ dokku libredb-studio:install
 
 `plugin:install` needs a running Docker daemon, because its install trigger creates the `libredb-studio` network.
 
-`libredb-studio:install` creates the app `libredb-studio`, deploys `ghcr.io/libredb/libredb-studio:0.17.0`, connects every existing service and prints the admin email and a generated password.
+`libredb-studio:install` creates the app `libredb-studio`, deploys `ghcr.io/libredb/libredb-studio:0.18.0`, connects every existing service and prints the admin email and a generated password.
 The password is shown once; read it again with `dokku config:get libredb-studio ADMIN_PASSWORD`.
 
 The login cookie is Secure, so sign-in needs https:
@@ -41,7 +41,7 @@ libredb-studio:uninstall                  # Detaches every datastore service fro
 
 `libredb-studio:install` flags:
 
-- `--image <image>`: the Studio image to deploy (default: `ghcr.io/libredb/libredb-studio:0.17.0`)
+- `--image <image>`: the Studio image to deploy (default: `ghcr.io/libredb/libredb-studio:0.18.0`)
 - `--admin-email <email>`: the admin login (default: `admin@libredb.local`)
 - `--allow-http`: set `AUTH_COOKIE_SECURE=false`, for a trusted network without TLS
 

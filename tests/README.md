@@ -22,4 +22,4 @@ make clean   # stop the stack and remove its containers, network and state direc
 Run one file with `make unit-tests UNIT_TESTS=libredb_studio_sync.bats`, or one test with `UNIT_TESTS_FILTER='sync is idempotent'`.
 Pick the dokku release with `DOKKU_VERSION=0.38.31 make setup`.
 
-The first run pulls `ghcr.io/libredb/libredb-studio:0.17.0`, `postgres` and `redis` images, a few hundred megabytes in all.
+The first run pulls `ghcr.io/libredb/libredb-studio:0.18.0`, `postgres` and `redis` images, a few hundred megabytes in all.
