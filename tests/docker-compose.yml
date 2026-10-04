@@ -7,6 +7,11 @@ services:
       args:
         DOKKU_VERSION: ${DOKKU_VERSION:-latest}
     container_name: libredbtest-dokku
+    # Dokku's own Docker install runs its container on the default bridge network
+    # (docs/getting-started/install/docker.md). On a compose project network the
+    # nginx inside this container cannot reach app containers on the bridge, so
+    # every proxied request to an app times out with 504.
+    network_mode: bridge
     restart: unless-stopped
     environment:
       - DOKKU_HOSTNAME=dokku.test
