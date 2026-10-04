@@ -5,7 +5,7 @@ Create a database with `dokku postgres:create`, and it appears in Studio for adm
 
 ## Requirements
 
-- dokku 0.35.0+
+- dokku 0.35.20+, the oldest version CI tests
 - one or more of the official datastore plugins at 2.0.0 or later, which run on [dokku-datastore](https://github.com/dokku/dokku-datastore): `postgres`, `mysql`, `mariadb`, `mongo`, `redis`
 - `jq`, which dokku itself depends on
 
@@ -16,6 +16,8 @@ Create a database with `dokku postgres:create`, and it appears in Studio for adm
 sudo dokku plugin:install https://github.com/libredb/dokku-libredb-studio.git
 dokku libredb-studio:install
 ```
+
+`plugin:install` needs a running Docker daemon, because its install trigger creates the `libredb-studio` network.
 
 `libredb-studio:install` creates the app `libredb-studio`, deploys `ghcr.io/libredb/libredb-studio:0.17.0`, connects every existing service and prints the admin email and a generated password.
 The password is shown once; read it again with `dokku config:get libredb-studio ADMIN_PASSWORD`.
@@ -95,6 +97,17 @@ sudo dokku plugin:uninstall libredb-studio    # detach every service, delete the
 `plugin:uninstall` keeps the network while the Studio app still exists, because the app is attached to it, and prints the two commands that remove both.
 Studio's own data in `/var/lib/dokku/data/libredb-studio/storage/` is always kept.
 
+If one service is permanently broken and cannot be detached, each of these commands fails and names it.
+Fix that service, or destroy it with `dokku <type>:destroy <service>`, or take `libredb-studio` out of its list by hand:
+
+```shell
+dokku <type>:info <service> --post-create-network                 # read the list, for example: other-net,libredb-studio
+dokku <type>:set <service> post-create-network other-net          # write it back without libredb-studio
+dokku <type>:set <service> post-create-network                    # or clear it, when libredb-studio was the only entry
+```
+
+Then run the command again; after a failed `apps:destroy` the app is already gone, so run `dokku libredb-studio:uninstall` instead.
+
 ## Security
 
 Every account a dokku datastore hands out is the image's own, and for `postgres` that is the superuser.
@@ -113,7 +126,8 @@ Its own data lives in `/var/lib/dokku/data/libredb-studio/storage/`, owned by `1
 
 `libredb-studio:install` passes the generated `JWT_SECRET` and `ADMIN_PASSWORD` to `dokku config:set` as arguments, as every `config:set` does, so a local user can see them in the process list while that one command runs.
 Its output is discarded, so they are not printed with the rest of the configuration.
-On a host shared with untrusted local users, set new values afterwards with `dokku config:set libredb-studio ADMIN_PASSWORD=... JWT_SECRET=...` from a session they cannot watch.
+Running `dokku config:set libredb-studio ADMIN_PASSWORD=... JWT_SECRET=...` again to rotate them passes the new values as process arguments too, with the same exposure while it runs.
+On a host shared with untrusted local users, mount `/proc` with `hidepid=2`, so a user sees only their own processes.
 
 PostgreSQL connections use `ssl.mode: require`: each dokku postgres service has a self-signed certificate, so traffic is encrypted without verifying the certificate.
 
