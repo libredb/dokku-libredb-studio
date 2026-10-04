@@ -44,16 +44,7 @@ teardown() {
 }
 
 @test "destroying the Studio app detaches every service and removes the network, and upgrades still work" {
-  run env DOKKU_TRACE=1 dokku --force apps:destroy "$STUDIO_APP"
-  # Diagnostics for the post-delete ordering: printed on fd 3, so they reach the CI log on success too.
-  {
-    echo "# apps:destroy status: $status"
-    printf '%s\n' "$output" | grep -E "post-delete|libredb-studio|network (dis)?connect|network:destroy|container rm|Detached|Could not" | grep -v "^+ *source" | head -n 120 | sed 's/^/# /'
-    echo "# containers still on the network:"
-    docker network inspect libredb-studio --format '{{range .Containers}}{{.Name}} {{end}}' 2>&1 | sed 's/^/#   /'
-    echo "# service property:"
-    dokku postgres:info "$SERVICE" --post-create-network 2>&1 | sed 's/^/#   /'
-  } >&3
+  run dokku --force apps:destroy "$STUDIO_APP"
   [ "$status" -eq 0 ]
   run dokku postgres:info "$SERVICE" --post-create-network
   [[ "$output" != *"libredb-studio"* ]]
