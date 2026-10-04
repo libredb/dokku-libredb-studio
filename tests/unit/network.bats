@@ -128,6 +128,38 @@ setup() {
   [ "$(call_line 'datastore postgres:set')" -lt "$(call_line 'docker network rm')" ]
 }
 
+@test "destroying the Studio app takes its retired container off the network before it removes the network" {
+  install_studio
+  add_service postgres one
+  plugin_call fn-libredb-studio-sync
+  rm -r "$STUB_STATE/apps/libredb-studio"
+  # a deploy keeps the container it replaced running until it is retired, and
+  # scheduler-docker-local removes it in its own post-delete, after this one
+  add_app_container libredb-studio libredb-studio.web.1.1791127786
+  : >"$STUB_STATE/calls.log"
+
+  run "$REPO_ROOT/post-delete" libredb-studio
+  [ "$status" -eq 0 ]
+  run ! network_exists
+  [ ! -f "$STUB_STATE/docker/containers/libredb-studio.web.1.1791127786/libredb-studio" ]
+  [ "$(call_line 'docker network disconnect libredb-studio libredb-studio.web.1.1791127786')" -lt "$(call_line 'docker network rm')" ]
+}
+
+@test "destroying the Studio app leaves another app's container on the network, and fails naming the way out" {
+  install_studio
+  add_service postgres one
+  plugin_call fn-libredb-studio-sync
+  rm -r "$STUB_STATE/apps/libredb-studio"
+  add_app_container other-app other-app.web.1
+
+  run "$REPO_ROOT/post-delete" libredb-studio
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"dokku --force network:destroy libredb-studio"* ]]
+  [ -f "$STUB_STATE/docker/containers/other-app.web.1/libredb-studio" ]
+  network_exists
+  [ -z "$(service_networks postgres one)" ]
+}
+
 @test "destroying another app leaves Studio alone" {
   install_studio
   add_service postgres one

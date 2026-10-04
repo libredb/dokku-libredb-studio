@@ -75,6 +75,15 @@ add_service() {
   esac
 }
 
+# Creates a running container of an app on the Studio network, labelled with
+# the app name as dokku labels every container it makes for an app.
+add_app_container() {
+  local app="$1" container="$2"
+  mkdir -p "$STUB_STATE/docker/containers/$container" "$STUB_STATE/docker/app-labels"
+  echo "$container" >"$STUB_STATE/docker/containers/$container/libredb-studio"
+  echo "$app" >"$STUB_STATE/docker/app-labels/$container"
+}
+
 remove_service() {
   local type="$1" service="$2"
   rm -rf "$STUB_STATE/services/$type/$service" "$STUB_STATE/docker/containers/dokku.$type.$service"

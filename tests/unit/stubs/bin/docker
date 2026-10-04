@@ -2,6 +2,7 @@
 # A docker stand-in that keeps networks and container attachments as files:
 #   $STUB_STATE/docker/networks/<network>
 #   $STUB_STATE/docker/containers/<container>/<network>   (content: the alias)
+#   $STUB_STATE/docker/app-labels/<container>             (content: com.dokku.app-name)
 # Every call is appended to $STUB_STATE/calls.log.
 set -eo pipefail
 echo "docker $*" >>"$STUB_STATE/calls.log"
@@ -46,6 +47,34 @@ case "$1 $2" in
     ;;
   "network disconnect")
     rm -f "$root/containers/$4/$3"
+    ;;
+  "container ls")
+    # prints names where docker prints ids; both are accepted wherever a
+    # container is named
+    app="" network=""
+    shift 2
+    while (($#)); do
+      case "$1 ${2:-}" in
+        "--filter label=com.dokku.app-name="*) app="${2#label=com.dokku.app-name=}" ;;
+        "--filter network="*) network="${2#network=}" ;;
+        "--all "* | "--quiet "*)
+          shift
+          continue
+          ;;
+        *)
+          echo "docker stub: unsupported container ls argument: $*" >&2
+          exit 2
+          ;;
+      esac
+      shift 2
+    done
+    for dir in "$root"/containers/*; do
+      [[ -d "$dir" ]] || continue
+      name="$(basename "$dir")"
+      [[ -z "$app" || "$(cat "$root/app-labels/$name" 2>/dev/null)" == "$app" ]] || continue
+      [[ -z "$network" || -f "$dir/$network" ]] || continue
+      echo "$name"
+    done
     ;;
   "container inspect")
     container="${*: -1}"

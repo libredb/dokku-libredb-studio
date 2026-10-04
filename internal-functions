@@ -232,6 +232,23 @@ fn-libredb-studio-remove-network() {
   fi
 }
 
+fn-libredb-studio-detach-app-containers() {
+  declare desc="takes every container of an app off the Studio network, the retired ones included"
+  declare APP="$1"
+  local containers container
+
+  # A deploy keeps the container it replaced running until it is retired, and
+  # apps:destroy removes that one only in scheduler-docker-local's post-delete,
+  # which runs after this plugin's. While it is attached, the network cannot go.
+  if ! containers="$("$DOCKER_BIN" container ls --all --quiet --filter "label=com.dokku.app-name=$APP" --filter "network=$LIBREDB_STUDIO_NETWORK")"; then
+    dokku_log_warn "Could not list the containers of $APP on the $LIBREDB_STUDIO_NETWORK network"
+    return 1
+  fi
+  for container in $containers; do
+    "$DOCKER_BIN" network disconnect "$LIBREDB_STUDIO_NETWORK" "$container" >/dev/null || return 1
+  done
+}
+
 fn-libredb-studio-list-contains() {
   declare desc="reports whether a comma-separated list holds a value"
   declare LIST="$1" VALUE="$2"

@@ -16,6 +16,8 @@ trigger-libredb-studio-post-delete() {
   # the network may only go once no service property names it
   fn-libredb-studio-detach-all ||
     dokku_log_fail "LibreDB Studio app $APP was destroyed, but not every service could be taken off the $LIBREDB_STUDIO_NETWORK network; see above. Retry with: dokku $PLUGIN_COMMAND_PREFIX:uninstall"
+  fn-libredb-studio-detach-app-containers "$APP" ||
+    dokku_log_fail "LibreDB Studio app $APP was destroyed, but one of its containers could not be taken off the $LIBREDB_STUDIO_NETWORK network. Remove it with: dokku --force network:destroy $LIBREDB_STUDIO_NETWORK"
   fn-libredb-studio-remove-network ||
     dokku_log_fail "No service names the $LIBREDB_STUDIO_NETWORK network any more, but it could not be removed. Remove it with: dokku --force network:destroy $LIBREDB_STUDIO_NETWORK"
   dokku_log_info1 "LibreDB Studio app $APP was destroyed; every datastore service was detached and the $LIBREDB_STUDIO_NETWORK network removed"
