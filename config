@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 export PLUGIN_COMMAND_PREFIX="libredb-studio"
+# dokku exports these; the defaults are dokku's own
+export DOCKER_BIN=${DOCKER_BIN:="docker"}
+export DOKKU_SYSTEM_USER=${DOKKU_SYSTEM_USER:="dokku"}
+export DOKKU_SYSTEM_GROUP=${DOKKU_SYSTEM_GROUP:="dokku"}
 export DOKKU_LIB_HOST_ROOT=${DOKKU_LIB_HOST_ROOT:=$DOKKU_LIB_ROOT}
 
 # Where the plugin keeps its state on the dokku host, and the same directory as
@@ -16,14 +20,16 @@ export LIBREDB_STUDIO_SEED_FILE="$LIBREDB_STUDIO_SEED_DIR/connections.json"
 export LIBREDB_STUDIO_ENTRIES_DIR="$LIBREDB_STUDIO_ROOT/entries"
 export LIBREDB_STUDIO_STORAGE_DIR="$LIBREDB_STUDIO_ROOT/storage"
 export LIBREDB_STUDIO_LOCK_FILE="$LIBREDB_STUDIO_ROOT/seed.lock"
+# seconds a command waits for another one holding the lock
+export LIBREDB_STUDIO_LOCK_TIMEOUT=${LIBREDB_STUDIO_LOCK_TIMEOUT:="120"}
 
 export LIBREDB_STUDIO_DEFAULT_APP="libredb-studio"
 export LIBREDB_STUDIO_DEFAULT_IMAGE="ghcr.io/libredb/libredb-studio:0.17.0"
 export LIBREDB_STUDIO_NETWORK="libredb-studio"
 
 # The image runs as nextjs (1001) in group nodejs (1001).
-export LIBREDB_STUDIO_UID="1001"
-export LIBREDB_STUDIO_GID="1001"
+export LIBREDB_STUDIO_UID=${LIBREDB_STUDIO_UID:="1001"}
+export LIBREDB_STUDIO_GID=${LIBREDB_STUDIO_GID:="1001"}
 export LIBREDB_STUDIO_PORT="3000"
 export LIBREDB_STUDIO_SEED_MOUNT="/run/libredb-seed"
 export LIBREDB_STUDIO_DATA_MOUNT="/app/data"

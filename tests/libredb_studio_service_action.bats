@@ -58,12 +58,20 @@ teardown() {
 
 @test "postgres:destroy succeeds and removes the entry, and the file when it was the last" {
   dokku postgres:create "$SERVICE"
+  local other="${SERVICE}o"
+  dokku postgres:create "$other"
+  # every other test in this file destroys its services, so these are the only two
+  [ "$(jq '.connections | length' "$SEED_FILE")" -eq 2 ]
+
+  run dokku --force postgres:destroy "$other"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"LibreDB Studio: $other is no longer listed"* ]]
+  [ -z "$(seed_entry "$(seed_id postgres "$other")")" ]
+  [ -n "$(seed_entry "$(seed_id postgres "$SERVICE")")" ]
+
   run dokku --force postgres:destroy "$SERVICE"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"LibreDB Studio: $SERVICE is no longer listed"* ]]
-  if [ -f "$SEED_FILE" ]; then
-    [ -z "$(seed_entry "$(seed_id postgres "$SERVICE")")" ]
-  fi
+  [ ! -f "$SEED_FILE" ]
 }
 
 @test "redis:create adds host, port and password fields and no connection string" {
@@ -87,6 +95,14 @@ teardown() {
   run dokku libredb-studio:sync
   [ "$status" -eq 0 ]
   [ -n "$(seed_entry "$(seed_id postgres "$SERVICE")")" ]
+}
+
+@test "a root plugin:trigger leaves the entry and the lock owned by the dokku user" {
+  dokku postgres:create "$SERVICE"
+  run dokku plugin:trigger service-action post-create-complete postgres "$SERVICE"
+  [ "$status" -eq 0 ]
+  [ "$(stat -c '%U:%G' "${ENTRIES_DIR}/$(seed_id postgres "$SERVICE").json")" = "dokku:dokku" ]
+  [ "$(stat -c '%U:%G' "${PLUGIN_ROOT}/seed.lock")" = "dokku:dokku" ]
 }
 
 @test "an unsupported datastore type is skipped without an error" {

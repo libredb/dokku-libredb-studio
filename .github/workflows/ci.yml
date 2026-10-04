@@ -16,6 +16,23 @@ permissions:
   contents: read
 
 jobs:
+  unit:
+    name: lint and unit tests
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+
+      - name: Install bats and shellcheck
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends bats shellcheck
+
+      - name: Run shellcheck
+        run: make host-lint
+
+      - name: Run the unit tests
+        run: make unit
+
   test:
     name: test (dokku ${{ matrix.dokku_version }})
     runs-on: ubuntu-24.04

@@ -19,8 +19,7 @@ teardown() {
   [ ! -f "$SEED_FILE" ]
   run dokku postgres:info "$SERVICE" --post-create-network
   [[ "$output" != *"libredb-studio"* ]]
-  ! docker container inspect --format '{{json .NetworkSettings.Networks}}' "dokku.postgres.$SERVICE" |
-    jq -e 'has("libredb-studio")'
+  [ "$(docker container inspect --format '{{json .NetworkSettings.Networks}}' "dokku.postgres.$SERVICE" | jq 'has("libredb-studio")')" = "false" ]
 }
 
 @test "after uninstall a new service is left alone" {
@@ -31,6 +30,28 @@ teardown() {
   [[ "$output" != *"libredb-studio"* ]]
   [ ! -f "$SEED_FILE" ]
   destroy_service postgres "$other"
+}
+
+@test "plugin:uninstall leaves no service naming the network, and the service can still be upgraded" {
+  run dokku plugin:uninstall libredb-studio
+  reinstall_plugin
+  [ "$status" -eq 0 ]
+  run dokku postgres:info "$SERVICE" --post-create-network
+  [[ "$output" != *"libredb-studio"* ]]
+  [ ! -f "$SEED_FILE" ]
+  run dokku postgres:upgrade "$SERVICE"
+  [ "$status" -eq 0 ]
+}
+
+@test "destroying the Studio app detaches every service and removes the network, and upgrades still work" {
+  run dokku --force apps:destroy "$STUDIO_APP"
+  [ "$status" -eq 0 ]
+  run dokku postgres:info "$SERVICE" --post-create-network
+  [[ "$output" != *"libredb-studio"* ]]
+  run docker network inspect libredb-studio
+  [ "$status" -ne 0 ]
+  run dokku postgres:upgrade "$SERVICE"
+  [ "$status" -eq 0 ]
 }
 
 @test "destroying the Studio app stops new services from being attached" {

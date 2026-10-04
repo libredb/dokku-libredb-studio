@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
-source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/config"
-source "$PLUGIN_CORE_AVAILABLE_PATH/common/functions"
-source "$PLUGIN_CORE_AVAILABLE_PATH/common/property-functions"
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/internal-functions"
 set -eo pipefail
 [[ $DOKKU_TRACE ]] && set -x
 
@@ -24,6 +22,17 @@ trigger-libredb-studio-install() {
   chmod 0750 "$LIBREDB_STUDIO_ROOT" "$LIBREDB_STUDIO_SEED_DIR" "$LIBREDB_STUDIO_ENTRIES_DIR"
   chown "$LIBREDB_STUDIO_UID:$LIBREDB_STUDIO_GID" "$LIBREDB_STUDIO_STORAGE_DIR"
   chmod 0700 "$LIBREDB_STUDIO_STORAGE_DIR"
+
+  # the lock is created here, as root, so that it belongs to the dokku user
+  # even when a root `dokku plugin:trigger` is the first to take it
+  touch "$LIBREDB_STUDIO_LOCK_FILE"
+  chown "$DOKKU_SYSTEM_USER:$DOKKU_SYSTEM_GROUP" "$LIBREDB_STUDIO_LOCK_FILE"
+  chmod 0640 "$LIBREDB_STUDIO_LOCK_FILE"
+
+  # A service's post-create-network may name this network, and dokku-datastore
+  # cannot make that service's container without it, so it is made here and
+  # again before every attach, and removed only after every service lets go
+  fn-libredb-studio-ensure-network || dokku_log_fail "Could not create the $LIBREDB_STUDIO_NETWORK network"
 
   # property writes above ran as root; later commands run as the dokku user
   local config_dir="${DOKKU_LIB_ROOT:-/var/lib/dokku}/config/$PLUGIN_COMMAND_PREFIX"

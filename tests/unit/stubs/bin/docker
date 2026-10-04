@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+# A docker stand-in that keeps networks and container attachments as files:
+#   $STUB_STATE/docker/networks/<network>
+#   $STUB_STATE/docker/containers/<container>/<network>   (content: the alias)
+# Every call is appended to $STUB_STATE/calls.log.
+set -eo pipefail
+echo "docker $*" >>"$STUB_STATE/calls.log"
+root="$STUB_STATE/docker"
+mkdir -p "$root/networks" "$root/containers"
+
+case "$1 $2" in
+  "network inspect")
+    [[ -f "$root/networks/$3" ]] || {
+      echo "Error response from daemon: network $3 not found" >&2
+      exit 1
+    }
+    ;;
+  "network create")
+    name="${*: -1}"
+    [[ ! -f "$STUB_STATE/network-create-fails" ]] || {
+      echo "Error response from daemon: could not create network" >&2
+      exit 1
+    }
+    [[ ! -f "$root/networks/$name" ]] || {
+      echo "Error response from daemon: network with name $name already exists" >&2
+      exit 1
+    }
+    touch "$root/networks/$name"
+    ;;
+  "network rm")
+    for c in "$root"/containers/*/"$3"; do
+      [[ -e "$c" ]] || continue
+      echo "Error response from daemon: error while removing network: network $3 has active endpoints" >&2
+      exit 1
+    done
+    rm -f "$root/networks/$3"
+    ;;
+  "network connect")
+    alias="$4" network="$5" container="$6"
+    [[ -f "$root/networks/$network" ]] || {
+      echo "Error response from daemon: network $network not found" >&2
+      exit 1
+    }
+    [[ -d "$root/containers/$container" ]] || exit 1
+    echo "$alias" >"$root/containers/$container/$network"
+    ;;
+  "network disconnect")
+    rm -f "$root/containers/$4/$3"
+    ;;
+  "container inspect")
+    container="${*: -1}"
+    [[ -d "$root/containers/$container" ]] || {
+      echo "Error: No such container: $container" >&2
+      exit 1
+    }
+    if [[ "$3" == "--format" ]]; then
+      (
+        cd "$root/containers/$container"
+        shopt -s nullglob
+        for n in *; do
+          jq -n --arg n "$n" --arg a "$(cat "$n")" '{($n): {Aliases: [$a]}}'
+        done
+      ) | jq -cs 'add // {}'
+    fi
+    ;;
+  *)
+    echo "docker stub: unsupported call: $*" >&2
+    exit 2
+    ;;
+esac

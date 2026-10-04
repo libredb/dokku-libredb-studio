@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+# The info and set subcommands of a dokku datastore plugin, installed by the
+# test helper as $PLUGIN_ENABLED_PATH/<type>/subcommands/{info,set}. A service
+# is the directory $STUB_STATE/services/<type>/<service> with a dsn file and,
+# when set, a post-create-network file.
+set -eo pipefail
+echo "datastore $*" >>"$STUB_STATE/calls.log"
+
+command="$1"
+type="${command%%:*}"
+subcommand="${command#*:}"
+service="$2"
+dir="$STUB_STATE/services/$type/$service"
+[[ -d "$dir" ]] || {
+  echo " !     $type service $service does not exist" >&2
+  exit 1
+}
+
+case "$subcommand" in
+  info)
+    case "$3" in
+      --format)
+        jq -n --arg dsn "$(cat "$dir/dsn")" --arg networks "$(cat "$dir/post-create-network" 2>/dev/null || true)" \
+          '{dsn: $dsn, "post-create-network": $networks}'
+        ;;
+      --post-create-network)
+        cat "$dir/post-create-network" 2>/dev/null || true
+        ;;
+      *)
+        exit 2
+        ;;
+    esac
+    ;;
+  set)
+    [[ "$3" == "post-create-network" ]] || exit 2
+    [[ ! -f "$dir/set-fails" ]] || {
+      echo " !     could not write the property" >&2
+      exit 1
+    }
+    if [[ -n "$4" ]]; then
+      printf '%s\n' "$4" >"$dir/post-create-network"
+    else
+      rm -f "$dir/post-create-network"
+    fi
+    ;;
+  *)
+    exit 2
+    ;;
+esac

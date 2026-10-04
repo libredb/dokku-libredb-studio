@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+source "$(dirname "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)")/internal-functions"
+set -eo pipefail
+[[ $DOKKU_TRACE ]] && set -x
+
+fn-libredb-studio-plugin-uninstall() {
+  declare desc="does the work of the uninstall trigger: detaches every service, then removes the files and the network"
+  local app
+
+  # plugin:uninstall runs as root; the service properties belong to dokku
+  fn-libredb-studio-require-system-user "$0" "$@"
+
+  app="$(fn-libredb-studio-app)"
+  # Every service property must stop naming the network before the network
+  # can go, or the service's next upgrade or recreated container fails. A
+  # failure here fails plugin:uninstall, so the plugin stays and can be run again.
+  fn-libredb-studio-detach-all ||
+    dokku_log_fail "LibreDB Studio could not detach every service; see above. The plugin is kept: fix that, then run 'dokku plugin:uninstall $PLUGIN_COMMAND_PREFIX' again"
+
+  fn-plugin-property-delete "$PLUGIN_COMMAND_PREFIX" "--global" "app"
+  fn-plugin-property-delete "$PLUGIN_COMMAND_PREFIX" "--global" "image"
+  # these hold the services' superuser passwords
+  rm -rf "$LIBREDB_STUDIO_ENTRIES_DIR" "$LIBREDB_STUDIO_SEED_DIR"
+
+  if [[ -n "$app" ]] && fn-libredb-studio-dokku apps:exists "$app" >/dev/null 2>&1; then
+    dokku_log_warn "The $LIBREDB_STUDIO_NETWORK network is kept, because app $app is still attached to it. No service names it any more. Remove both with:"
+    dokku_log_warn "  dokku apps:destroy $app"
+    dokku_log_warn "  dokku --force network:destroy $LIBREDB_STUDIO_NETWORK"
+  else
+    fn-libredb-studio-remove-network ||
+      dokku_log_fail "The $LIBREDB_STUDIO_NETWORK network could not be removed; no service names it any more, so 'dokku --force network:destroy $LIBREDB_STUDIO_NETWORK' is safe once its containers are gone"
+  fi
+  dokku_log_verbose "Studio's own data is kept in $LIBREDB_STUDIO_STORAGE_DIR"
+}
+
+fn-libredb-studio-plugin-uninstall "$@"

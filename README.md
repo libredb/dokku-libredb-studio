@@ -60,10 +60,40 @@ Instead, the service is put on a dedicated docker network, `libredb-studio`, tha
 - Studio reaches the service by that name, so an IP that changes on restart does not matter
 
 A network you set on a service yourself is kept.
-`libredb-studio:uninstall` takes `libredb-studio` back out of every service's list.
+
+dokku-datastore cannot make a container whose `post-create-network` names a missing network, so the plugin keeps `libredb-studio` in existence for as long as any service names it:
+
+- `plugin:install` creates it, and every attach creates it again first if it is gone
+- `libredb-studio:uninstall`, `plugin:uninstall libredb-studio` and destroying the Studio app first take `libredb-studio` out of every service's list, and only then remove the network
+- if a service cannot be detached, the command fails and the network is kept, so the service's next `upgrade` or recreated container still works
+
+If you remove the network by hand anyway, run `dokku libredb-studio:sync`: it creates the network again and puts every service back on it.
+Then put Studio back on it with `dokku ps:rebuild libredb-studio`.
+
+The service list comes from dokku-datastore's `service-list` trigger.
+If that listing fails, `sync` and `uninstall` stop with an error and change nothing, so a broken datastore plugin never makes Studio forget its connections.
 
 A failure in this plugin never fails your `create` or `destroy`.
 It prints a warning, and `dokku libredb-studio:sync` retries.
+
+### Two services with the same DNS name
+
+dokku-datastore turns `_` and `.` in a service name into `-` for its DNS name and keeps the case, while DNS ignores case.
+So `my_db` and `my-db`, or `MyDB` and `mydb`, get the same name on the shared network, and Docker would answer with either container.
+The plugin refuses the second one: it is not put on the network and gets no connection, and the warning names both services.
+The service that already holds the name keeps it.
+Rename or destroy one of the two, then run `dokku libredb-studio:sync`.
+
+## Uninstalling
+
+```shell
+dokku libredb-studio:uninstall                # detach every service, remove the connection list, keep the app
+dokku apps:destroy libredb-studio             # or: destroy the app, which also detaches every service and removes the network
+sudo dokku plugin:uninstall libredb-studio    # detach every service, delete the stored connection files, remove the network
+```
+
+`plugin:uninstall` keeps the network while the Studio app still exists, because the app is attached to it, and prints the two commands that remove both.
+Studio's own data in `/var/lib/dokku/data/libredb-studio/storage/` is always kept.
 
 ## Security
 
@@ -81,6 +111,10 @@ The directory, not the file, is mounted read-only at `/run/libredb-seed`, so Stu
 Studio runs as the image's user, `1001:1001`, with the `dokku` group added, which is what lets it read the seed file.
 Its own data lives in `/var/lib/dokku/data/libredb-studio/storage/`, owned by `1001` with mode `0700`.
 
+`libredb-studio:install` passes the generated `JWT_SECRET` and `ADMIN_PASSWORD` to `dokku config:set` as arguments, as every `config:set` does, so a local user can see them in the process list while that one command runs.
+Its output is discarded, so they are not printed with the rest of the configuration.
+On a host shared with untrusted local users, set new values afterwards with `dokku config:set libredb-studio ADMIN_PASSWORD=... JWT_SECRET=...` from a session they cannot watch.
+
 PostgreSQL connections use `ssl.mode: require`: each dokku postgres service has a self-signed certificate, so traffic is encrypted without verifying the certificate.
 
 ## Limitations
@@ -89,6 +123,14 @@ PostgreSQL connections use `ssl.mode: require`: each dokku postgres service has 
 - `clickhouse`, `elasticsearch`, `couchdb` and other datastore types are skipped for now.
 - Services are listed for the admin role only.
 - The `service-action` trigger is implemented by dokku-datastore but not documented in dokku's plugin trigger list.
+
+## Development
+
+```shell
+make unit        # the stubbed suite in tests/unit: bash, bats, jq and flock, no docker
+make host-lint   # shellcheck over every shell file
+make setup test  # the end to end suite against dokku in docker, see tests/README.md
+```
 
 ## License
 

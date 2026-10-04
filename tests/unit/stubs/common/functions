@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# The parts of dokku's common/functions the plugin uses, with the same output.
+
+dokku_log_info1() {
+  echo "-----> $*"
+}
+
+dokku_log_info2() {
+  echo "=====> $*"
+}
+
+dokku_log_info2_quiet() {
+  echo "=====> $*"
+}
+
+dokku_log_verbose() {
+  echo "       $*"
+}
+
+dokku_log_verbose_quiet() {
+  echo "       $*"
+}
+
+dokku_log_warn() {
+  echo " !     $*" 1>&2
+}
+
+dokku_log_fail() {
+  echo " !     $*" 1>&2
+  exit "${DOKKU_FAIL_EXIT_CODE:=1}"
+}
+
+fn-in-array() {
+  local e
+  for e in "${@:2}"; do
+    [[ "$e" == "$1" ]] && return 0
+  done
+  return 1
+}

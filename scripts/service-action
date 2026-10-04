@@ -3,26 +3,43 @@ source "$(dirname "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)")/internal-func
 set -eo pipefail
 [[ $DOKKU_TRACE ]] && set -x
 
+fn-libredb-studio-service-action-create() {
+  declare desc="adds a service and assembles the seed file; the caller holds the lock"
+  declare SERVICE_TYPE="$1" SERVICE="$2"
+  fn-libredb-studio-add-service "$SERVICE_TYPE" "$SERVICE" || return 1
+  fn-libredb-studio-assemble-locked
+}
+
+fn-libredb-studio-service-action-delete() {
+  declare desc="removes a service's entry and assembles the seed file; the caller holds the lock"
+  declare SERVICE_TYPE="$1" SERVICE="$2"
+  fn-libredb-studio-remove-service "$SERVICE_TYPE" "$SERVICE"
+  fn-libredb-studio-assemble-locked
+}
+
 fn-libredb-studio-service-action() {
   declare desc="does the work of the service-action trigger; a non-zero exit becomes a warning there"
   declare ACTION="$1" SERVICE_TYPE="$2" SERVICE="$3"
+
+  # `dokku plugin:trigger` runs as root, and a root-owned entry or lock file
+  # would lock the dokku user out of every later sync
+  fn-libredb-studio-require-system-user "$0" "$@"
 
   # nothing to do until Studio is installed: install connects every service
   # that exists by then
   [[ -n "$(fn-libredb-studio-app)" ]] || return 0
   fn-libredb-studio-studio-type "$SERVICE_TYPE" >/dev/null || return 0
 
+  # the lock keeps a concurrent sync from dropping this entry as stale
   case "$ACTION" in
     post-create-complete)
       # This fires before the datastore waits for the service to answer. Only
       # files and the container are read here, and Studio connects later.
-      fn-libredb-studio-add-service "$SERVICE_TYPE" "$SERVICE"
-      fn-libredb-studio-assemble
+      fn-libredb-studio-locked fn-libredb-studio-service-action-create "$SERVICE_TYPE" "$SERVICE"
       dokku_log_info1 "LibreDB Studio: $SERVICE is listed for admins within a minute"
       ;;
     post-delete)
-      fn-libredb-studio-remove-service "$SERVICE_TYPE" "$SERVICE"
-      fn-libredb-studio-assemble
+      fn-libredb-studio-locked fn-libredb-studio-service-action-delete "$SERVICE_TYPE" "$SERVICE"
       dokku_log_info1 "LibreDB Studio: $SERVICE is no longer listed"
       ;;
   esac

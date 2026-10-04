@@ -1,0 +1,22 @@
+Listing row for dokku/dokku docs/community/plugins.md, in the Other Plugins table next to Discourse and Wordpress, which also install an app.
+Generated with git diff against dokku/dokku master as fetched on 2026-10-04 (plugins.md, 338 lines).
+Apply it from a checkout of a dokku/dokku fork with: git apply /path/to/dokku-plugins-md.patch
+Open the upstream PR only after 0.1.0 is tagged and CI is green, and ask in its body whether the maintainers prefer the Implementing New Dokku Functionality table.
+
+diff --git a/docs/community/plugins.md b/docs/community/plugins.md
+index f87785d..b51d60c 100644
+--- a/docs/community/plugins.md
++++ b/docs/community/plugins.md
+@@ -154,6 +154,7 @@ The following plugins are available and provided by Dokku maintainers.  Please f
+ | ------------------------------------------------------------------------------------------------- | --------------------- | --------------------- |
+ | [Chef cookbook](https://github.com/nickcharlton/dokku-cookbook)                                   | [nickcharlton][]      |                       |
+ | [Discourse](https://github.com/badsyntax/dokku-discourse)                                         | [badsyntax][]         | 0.21.4+               |
++| [LibreDB Studio (database GUI)](https://github.com/libredb/dokku-libredb-studio)                  | [libredb][]           | 0.35.0+               |
+ | [Tailscale](https://github.com/andrew-womeldorf/dokku-tailscale)                                  | [andrew-womeldorf][]  | 0.34.4+               |
+ | [Wordpress](https://github.com/dokku-community/dokku-wordpress)                                   | [dokku-community][]   | 0.4.0+                |
+ 
+@@ -336,3 +337,4 @@ The following plugins are no longer maintained by their developers.
+ [ollej]: https://github.com/ollej
+ [ignisda]: https://github.com/IgnisDa
+ [meteozond]: https://github.com/meteozond
++[libredb]: https://github.com/libredb

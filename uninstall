@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/config"
+set -eo pipefail
+[[ $DOKKU_TRACE ]] && set -x
+
+trigger-libredb-studio-uninstall() {
+  declare desc="takes every datastore service off the Studio network before the plugin is removed"
+  declare trigger="uninstall"
+  declare PLUGIN="$1"
+
+  # plugin:uninstall fires this trigger in every plugin
+  [[ "$PLUGIN" == "$PLUGIN_COMMAND_PREFIX" ]] || return 0
+  "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/scripts/uninstall"
+}
+
+trigger-libredb-studio-uninstall "$@"

@@ -28,6 +28,28 @@ remove_studio() {
   dokku --force network:destroy libredb-studio >/dev/null 2>&1 || true
 }
 
+# plugin:uninstall in a test removes the plugin; the next test needs it back.
+# The install trigger also recreates the network.
+reinstall_plugin() {
+  dokku plugin:installed libredb-studio || dokku plugin:install "file:///tmp/libredb-studio"
+}
+
+# A datastore whose service-list trigger fails, as a broken or half-upgraded
+# datastore plugin would.
+install_broken_service_list() {
+  local dir="/var/lib/dokku/plugins/available/lt-broken-list"
+  mkdir -p "$dir"
+  printf '[plugin]\ndescription = "test: a failing service-list"\nversion = "0.0.1"\n[plugin.config]\n' >"$dir/plugin.toml"
+  printf '#!/usr/bin/env bash\necho "failed to list services" >&2\nexit 1\n' >"$dir/service-list"
+  chmod +x "$dir/service-list"
+  dokku plugin:enable lt-broken-list
+}
+
+remove_broken_service_list() {
+  dokku plugin:disable lt-broken-list || true
+  rm -rf /var/lib/dokku/plugins/available/lt-broken-list
+}
+
 destroy_service() {
   local type="$1" service="$2"
   if dokku "$type:exists" "$service" >/dev/null 2>&1; then

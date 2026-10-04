@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# dokku's property store, kept as one file per key under $STUB_STATE/props.
+
+fn-plugin-property-get() {
+  declare PLUGIN="$1" APP="$2" KEY="$3" DEFAULT="$4"
+  local file="$STUB_STATE/props/$PLUGIN/$APP/$KEY"
+  if [[ -f "$file" ]]; then
+    cat "$file"
+  else
+    echo "$DEFAULT"
+  fi
+}
+
+fn-plugin-property-write() {
+  declare PLUGIN="$1" APP="$2" KEY="$3" VALUE="$4"
+  mkdir -p "$STUB_STATE/props/$PLUGIN/$APP"
+  printf '%s\n' "$VALUE" >"$STUB_STATE/props/$PLUGIN/$APP/$KEY"
+}
+
+fn-plugin-property-delete() {
+  declare PLUGIN="$1" APP="$2" KEY="$3"
+  rm -f "$STUB_STATE/props/$PLUGIN/$APP/$KEY"
+}
+
+fn-plugin-property-setup() {
+  mkdir -p "$STUB_STATE/props/$1"
+}

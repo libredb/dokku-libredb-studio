@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+# A dokku stand-in for the few core commands the plugin calls.
+# Apps are directories under $STUB_STATE/apps. Every call is logged.
+set -eo pipefail
+echo "dokku $*" >>"$STUB_STATE/calls.log"
+
+force=false
+while [[ "$1" == --* ]]; do
+  [[ "$1" == "--force" ]] && force=true
+  shift
+done
+
+case "$1" in
+  apps:exists)
+    [[ -d "$STUB_STATE/apps/$2" ]]
+    ;;
+  network:exists)
+    docker network inspect "$2" >/dev/null 2>&1
+    ;;
+  network:create)
+    docker network create --attachable "$2" >/dev/null
+    ;;
+  network:destroy)
+    [[ "$force" == "true" ]] || {
+      echo "network:destroy needs --force in tests" >&2
+      exit 1
+    }
+    docker network rm "$2" >/dev/null
+    ;;
+  *)
+    echo "dokku stub: unsupported command: $*" >&2
+    exit 2
+    ;;
+esac

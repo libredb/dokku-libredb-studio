@@ -58,12 +58,10 @@ cmd-libredb-studio-install() {
   dokku_gid="$(getent group "$DOKKU_SYSTEM_GROUP" | cut -d: -f3)"
   [[ -n "$dokku_gid" ]] || dokku_log_fail "Could not find the id of group $DOKKU_SYSTEM_GROUP"
 
+  fn-libredb-studio-ensure-network || dokku_log_fail "Could not create the $LIBREDB_STUDIO_NETWORK network"
+
   dokku_log_info1 "Creating app $APP"
   fn-libredb-studio-dokku apps:create "$APP"
-
-  if ! fn-libredb-studio-dokku network:exists "$LIBREDB_STUDIO_NETWORK" >/dev/null 2>&1; then
-    fn-libredb-studio-dokku network:create "$LIBREDB_STUDIO_NETWORK"
-  fi
   fn-libredb-studio-dokku network:set "$APP" attach-post-create "$LIBREDB_STUDIO_NETWORK"
 
   # Run as the image's own user with the dokku group added. Started as root, the
@@ -123,8 +121,6 @@ cmd-libredb-studio-sync() {
 
   fn-libredb-studio-require-dirs
   [[ -n "$(fn-libredb-studio-app)" ]] || dokku_log_fail "LibreDB Studio is not installed. Run 'dokku $PLUGIN_COMMAND_PREFIX:install'"
-  fn-libredb-studio-dokku network:exists "$LIBREDB_STUDIO_NETWORK" >/dev/null 2>&1 ||
-    dokku_log_fail "The $LIBREDB_STUDIO_NETWORK network is missing. Create it with 'dokku network:create $LIBREDB_STUDIO_NETWORK', then run this again"
 
   dokku_log_info1 "Connecting the datastore services on this host"
   fn-libredb-studio-sync || dokku_log_fail "Some services could not be connected; see above"
@@ -159,34 +155,24 @@ cmd-libredb-studio-uninstall() {
   declare cmd="libredb-studio:uninstall"
   [[ "$1" == "$cmd" ]] && shift 1
 
-  local line service_type service failed=() app
-  while read -r line; do
-    [[ -z "$line" ]] && continue
-    service_type="${line%%:*}"
-    service="${line#*:}"
-    fn-libredb-studio-studio-type "$service_type" >/dev/null || continue
-    if fn-libredb-studio-detach-service "$service_type" "$service"; then
-      dokku_log_verbose "Detached $service_type service $service"
-    else
-      failed+=("$service_type:$service")
-    fi
-  done < <(fn-libredb-studio-services)
-
-  rm -f "$LIBREDB_STUDIO_ENTRIES_DIR"/*.json
-  fn-libredb-studio-assemble
-
+  local app
   app="$(fn-libredb-studio-app)"
+  # every service lets go of the network before anything else changes
+  fn-libredb-studio-detach-all ||
+    dokku_log_fail "Not every service could be detached; see above. Run this again once that is fixed"
+
   fn-plugin-property-delete "$PLUGIN_COMMAND_PREFIX" "--global" "app"
   fn-plugin-property-delete "$PLUGIN_COMMAND_PREFIX" "--global" "image"
-
-  if ((${#failed[@]} > 0)); then
-    dokku_log_fail "These services could not be detached: ${failed[*]}"
-  fi
   dokku_log_info1 "LibreDB Studio no longer receives connections"
-  if [[ -n "$app" ]]; then
-    dokku_log_verbose "The app and its data are kept. Remove them with:"
+
+  if [[ -n "$app" ]] && fn-libredb-studio-dokku apps:exists "$app" >/dev/null 2>&1; then
+    # the app is still attached to the network, so the network stays with it;
+    # no service names it any more, so removing it later is safe
+    dokku_log_verbose "The app, its data and the $LIBREDB_STUDIO_NETWORK network are kept. Remove them with:"
     dokku_log_verbose "  dokku apps:destroy $app"
-    dokku_log_verbose "  dokku network:destroy $LIBREDB_STUDIO_NETWORK"
+    dokku_log_verbose "  dokku --force network:destroy $LIBREDB_STUDIO_NETWORK"
     dokku_log_verbose "  sudo rm -rf $LIBREDB_STUDIO_STORAGE_DIR/*"
+  else
+    fn-libredb-studio-remove-network || dokku_log_fail "Could not remove the $LIBREDB_STUDIO_NETWORK network"
   fi
 }
