@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# dokku's property store, kept as one file per key under $STUB_STATE/props.
+# dokku's property store, kept as one file per key under $STUB_STATE/props,
+# which stands for $DOKKU_LIB_ROOT/config: $STUB_STATE/props/<plugin>/<app>/<key>.
 
 fn-plugin-property-get() {
   declare PLUGIN="$1" APP="$2" KEY="$3" DEFAULT="$4"

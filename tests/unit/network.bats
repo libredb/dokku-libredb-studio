@@ -128,6 +128,23 @@ setup() {
   [ "$(call_line 'datastore postgres:set')" -lt "$(call_line 'docker network rm')" ]
 }
 
+@test "destroying the Studio app still detaches every service after dokku removed the config directory named after the app" {
+  install_studio
+  add_service postgres one
+  plugin_call fn-libredb-studio-sync
+  rm -r "$STUB_STATE/apps/libredb-studio"
+  # dokku 0.38 keeps an app's environment in $DOKKU_LIB_ROOT/config/<app>/ENV,
+  # beside the properties of every plugin in $DOKKU_LIB_ROOT/config/<plugin>,
+  # and its config plugin removes the app's directory in a post-delete that
+  # runs before this one
+  rm -rf "$STUB_STATE/props/libredb-studio"
+
+  run "$REPO_ROOT/post-delete" libredb-studio
+  [ "$status" -eq 0 ]
+  [ -z "$(service_networks postgres one)" ]
+  run ! network_exists
+}
+
 @test "destroying the Studio app takes its retired container off the network before it removes the network" {
   install_studio
   add_service postgres one

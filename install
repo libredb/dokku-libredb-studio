@@ -12,7 +12,7 @@ trigger-libredb-studio-install() {
     command -v "$tool" &>/dev/null || dokku_log_fail "$tool is required by the $PLUGIN_COMMAND_PREFIX plugin"
   done
 
-  fn-plugin-property-setup "$PLUGIN_COMMAND_PREFIX"
+  fn-plugin-property-setup "$LIBREDB_STUDIO_PROPERTIES"
 
   # The install trigger runs as root, which is the only time the storage
   # directory can be handed to the image's user. mkdir -p then chown and chmod,
@@ -35,7 +35,7 @@ trigger-libredb-studio-install() {
   fn-libredb-studio-ensure-network || dokku_log_fail "Could not create the $LIBREDB_STUDIO_NETWORK network"
 
   # property writes above ran as root; later commands run as the dokku user
-  local config_dir="${DOKKU_LIB_ROOT:-/var/lib/dokku}/config/$PLUGIN_COMMAND_PREFIX"
+  local config_dir="${DOKKU_LIB_ROOT:-/var/lib/dokku}/config/$LIBREDB_STUDIO_PROPERTIES"
   [[ -d "$config_dir" ]] && chown -R "$DOKKU_SYSTEM_USER:$DOKKU_SYSTEM_GROUP" "$config_dir"
   return 0
 }

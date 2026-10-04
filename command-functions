@@ -90,8 +90,8 @@ cmd-libredb-studio-install() {
   # config:set prints every value it sets, the secrets included
   fn-libredb-studio-dokku config:set --no-restart "$APP" "${config[@]}" >/dev/null
 
-  fn-plugin-property-write "$PLUGIN_COMMAND_PREFIX" "--global" "app" "$APP"
-  fn-plugin-property-write "$PLUGIN_COMMAND_PREFIX" "--global" "image" "$IMAGE"
+  fn-plugin-property-write "$LIBREDB_STUDIO_PROPERTIES" "--global" "app" "$APP"
+  fn-plugin-property-write "$LIBREDB_STUDIO_PROPERTIES" "--global" "image" "$IMAGE"
 
   dokku_log_info1 "Connecting the datastore services on this host"
   local sync_failed=false
@@ -136,7 +136,7 @@ cmd-libredb-studio-info() {
   app="$(fn-libredb-studio-app)"
   dokku_log_info2_quiet "LibreDB Studio information"
   dokku_log_verbose "$(printf "%-20s %s" "App:" "${app:-not installed}")"
-  dokku_log_verbose "$(printf "%-20s %s" "Image:" "$(fn-plugin-property-get "$PLUGIN_COMMAND_PREFIX" "--global" "image" "")")"
+  dokku_log_verbose "$(printf "%-20s %s" "Image:" "$(fn-plugin-property-get "$LIBREDB_STUDIO_PROPERTIES" "--global" "image" "")")"
   dokku_log_verbose "$(printf "%-20s %s" "Network:" "$LIBREDB_STUDIO_NETWORK")"
   dokku_log_verbose "$(printf "%-20s %s" "Seed file:" "$LIBREDB_STUDIO_SEED_FILE")"
 
@@ -161,8 +161,8 @@ cmd-libredb-studio-uninstall() {
   fn-libredb-studio-detach-all ||
     dokku_log_fail "Not every service could be detached; see above. Run this again once that is fixed"
 
-  fn-plugin-property-delete "$PLUGIN_COMMAND_PREFIX" "--global" "app"
-  fn-plugin-property-delete "$PLUGIN_COMMAND_PREFIX" "--global" "image"
+  fn-plugin-property-delete "$LIBREDB_STUDIO_PROPERTIES" "--global" "app"
+  fn-plugin-property-delete "$LIBREDB_STUDIO_PROPERTIES" "--global" "image"
   dokku_log_info1 "LibreDB Studio no longer receives connections"
 
   if [[ -n "$app" ]] && fn-libredb-studio-dokku apps:exists "$app" >/dev/null 2>&1; then

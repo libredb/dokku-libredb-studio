@@ -17,8 +17,8 @@ fn-libredb-studio-plugin-uninstall() {
   fn-libredb-studio-detach-all ||
     dokku_log_fail "LibreDB Studio could not detach every service; see above. The plugin is kept: fix that, then run 'dokku plugin:uninstall $PLUGIN_COMMAND_PREFIX' again"
 
-  fn-plugin-property-delete "$PLUGIN_COMMAND_PREFIX" "--global" "app"
-  fn-plugin-property-delete "$PLUGIN_COMMAND_PREFIX" "--global" "image"
+  fn-plugin-property-delete "$LIBREDB_STUDIO_PROPERTIES" "--global" "app"
+  fn-plugin-property-delete "$LIBREDB_STUDIO_PROPERTIES" "--global" "image"
   # these hold the services' superuser passwords
   rm -rf "$LIBREDB_STUDIO_ENTRIES_DIR" "$LIBREDB_STUDIO_SEED_DIR"
 

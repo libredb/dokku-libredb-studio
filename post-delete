@@ -11,7 +11,7 @@ trigger-libredb-studio-post-delete() {
   [[ -n "$APP" ]] || return 0
   [[ "$(fn-libredb-studio-app)" == "$APP" ]] || return 0
   # forgotten first, so that no service created from now on is attached
-  fn-plugin-property-delete "$PLUGIN_COMMAND_PREFIX" "--global" "app"
+  fn-plugin-property-delete "$LIBREDB_STUDIO_PROPERTIES" "--global" "app"
 
   # the network may only go once no service property names it
   fn-libredb-studio-detach-all ||

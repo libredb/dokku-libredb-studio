@@ -103,13 +103,13 @@ network_exists() {
 
 # The state libredb-studio:install leaves: the app, its property, the network.
 install_studio() {
-  mkdir -p "$STUB_STATE/apps/libredb-studio" "$STUB_STATE/props/libredb-studio/--global"
-  echo "libredb-studio" >"$STUB_STATE/props/libredb-studio/--global/app"
+  mkdir -p "$STUB_STATE/apps/libredb-studio" "$STUB_STATE/props/_libredb-studio/--global"
+  echo "libredb-studio" >"$STUB_STATE/props/_libredb-studio/--global/app"
   touch "$STUB_STATE/docker/networks/libredb-studio"
 }
 
 studio_app_property() {
-  cat "$STUB_STATE/props/libredb-studio/--global/app" 2>/dev/null || true
+  cat "$STUB_STATE/props/_libredb-studio/--global/app" 2>/dev/null || true
 }
 
 # Prints the line number of the first call log line that matches a pattern.

@@ -23,6 +23,13 @@ export LIBREDB_STUDIO_LOCK_FILE="$LIBREDB_STUDIO_ROOT/seed.lock"
 # seconds a command waits for another one holding the lock
 export LIBREDB_STUDIO_LOCK_TIMEOUT=${LIBREDB_STUDIO_LOCK_TIMEOUT:="120"}
 
+# dokku 0.38 keeps an app's environment in $DOKKU_LIB_ROOT/config/<app>/ENV,
+# beside every plugin's properties in $DOKKU_LIB_ROOT/config/<plugin>, and
+# apps:destroy removes the app's directory there. Under the plugin's own name
+# the properties would go with a Studio app of the same name, so they are kept
+# under a name no app can have: an app name begins with a letter or a digit.
+export LIBREDB_STUDIO_PROPERTIES="_libredb-studio"
+
 export LIBREDB_STUDIO_DEFAULT_APP="libredb-studio"
 export LIBREDB_STUDIO_DEFAULT_IMAGE="ghcr.io/libredb/libredb-studio:0.17.0"
 export LIBREDB_STUDIO_NETWORK="libredb-studio"
