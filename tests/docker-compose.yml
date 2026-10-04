@@ -1,0 +1,18 @@
+name: libredbtest
+
+services:
+  dokku:
+    build:
+      context: ./dokku
+      args:
+        DOKKU_VERSION: ${DOKKU_VERSION:-latest}
+    container_name: libredbtest-dokku
+    restart: unless-stopped
+    environment:
+      - DOKKU_HOSTNAME=dokku.test
+      - DOKKU_HOST_ROOT=${LIBREDBTEST_HOST_DIR}/home/dokku
+      - DOKKU_LIB_HOST_ROOT=${LIBREDBTEST_HOST_DIR}/var/lib/dokku
+    volumes:
+      - ${LIBREDBTEST_HOST_DIR}:/mnt/dokku
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ../:/plugin-src:ro

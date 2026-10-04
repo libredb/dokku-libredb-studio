@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+source "$(dirname "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)")/internal-functions"
+set -eo pipefail
+[[ $DOKKU_TRACE ]] && set -x
+
+fn-libredb-studio-service-action() {
+  declare desc="does the work of the service-action trigger; a non-zero exit becomes a warning there"
+  declare ACTION="$1" SERVICE_TYPE="$2" SERVICE="$3"
+
+  # nothing to do until Studio is installed: install connects every service
+  # that exists by then
+  [[ -n "$(fn-libredb-studio-app)" ]] || return 0
+  fn-libredb-studio-studio-type "$SERVICE_TYPE" >/dev/null || return 0
+
+  case "$ACTION" in
+    post-create-complete)
+      # This fires before the datastore waits for the service to answer. Only
+      # files and the container are read here, and Studio connects later.
+      fn-libredb-studio-add-service "$SERVICE_TYPE" "$SERVICE"
+      fn-libredb-studio-assemble
+      dokku_log_info1 "LibreDB Studio: $SERVICE is listed for admins within a minute"
+      ;;
+    post-delete)
+      fn-libredb-studio-remove-service "$SERVICE_TYPE" "$SERVICE"
+      fn-libredb-studio-assemble
+      dokku_log_info1 "LibreDB Studio: $SERVICE is no longer listed"
+      ;;
+  esac
+}
+
+fn-libredb-studio-service-action "$@"

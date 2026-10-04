@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/config"
+source "$PLUGIN_CORE_AVAILABLE_PATH/common/functions"
+source "$PLUGIN_CORE_AVAILABLE_PATH/common/property-functions"
+set -eo pipefail
+[[ $DOKKU_TRACE ]] && set -x
+
+trigger-libredb-studio-install() {
+  declare desc="creates the plugin directories with the owners and modes Studio and the dokku user need"
+  declare trigger="install"
+  local tool
+
+  for tool in jq flock getent sha256sum; do
+    command -v "$tool" &>/dev/null || dokku_log_fail "$tool is required by the $PLUGIN_COMMAND_PREFIX plugin"
+  done
+
+  fn-plugin-property-setup "$PLUGIN_COMMAND_PREFIX"
+
+  # The install trigger runs as root, which is the only time the storage
+  # directory can be handed to the image's user. mkdir -p then chown and chmod,
+  # never recursively, so a reinstall does not touch what Studio wrote.
+  mkdir -p "$LIBREDB_STUDIO_ROOT" "$LIBREDB_STUDIO_SEED_DIR" "$LIBREDB_STUDIO_ENTRIES_DIR" "$LIBREDB_STUDIO_STORAGE_DIR"
+  chown "$DOKKU_SYSTEM_USER:$DOKKU_SYSTEM_GROUP" "$LIBREDB_STUDIO_ROOT" "$LIBREDB_STUDIO_SEED_DIR" "$LIBREDB_STUDIO_ENTRIES_DIR"
+  chmod 0750 "$LIBREDB_STUDIO_ROOT" "$LIBREDB_STUDIO_SEED_DIR" "$LIBREDB_STUDIO_ENTRIES_DIR"
+  chown "$LIBREDB_STUDIO_UID:$LIBREDB_STUDIO_GID" "$LIBREDB_STUDIO_STORAGE_DIR"
+  chmod 0700 "$LIBREDB_STUDIO_STORAGE_DIR"
+
+  # property writes above ran as root; later commands run as the dokku user
+  local config_dir="${DOKKU_LIB_ROOT:-/var/lib/dokku}/config/$PLUGIN_COMMAND_PREFIX"
+  [[ -d "$config_dir" ]] && chown -R "$DOKKU_SYSTEM_USER:$DOKKU_SYSTEM_GROUP" "$config_dir"
+  return 0
+}
+
+trigger-libredb-studio-install "$@"

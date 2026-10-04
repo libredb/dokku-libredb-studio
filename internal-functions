@@ -1,0 +1,311 @@
+#!/usr/bin/env bash
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/config"
+source "$PLUGIN_CORE_AVAILABLE_PATH/common/functions"
+source "$PLUGIN_CORE_AVAILABLE_PATH/common/property-functions"
+set -eo pipefail
+[[ $DOKKU_TRACE ]] && set -x
+
+fn-libredb-studio-app() {
+  declare desc="prints the name of the installed Studio app, or nothing when Studio is not installed"
+  fn-plugin-property-get "$PLUGIN_COMMAND_PREFIX" "--global" "app" ""
+}
+
+fn-libredb-studio-dokku() {
+  declare desc="runs a dokku command without the caller's --app, which would be prepended to core commands"
+  DOKKU_APP_NAME="" dokku "$@"
+}
+
+fn-libredb-studio-require-dirs() {
+  declare desc="fails when the install trigger has not created the plugin directories"
+  local dir
+  for dir in "$LIBREDB_STUDIO_SEED_DIR" "$LIBREDB_STUDIO_ENTRIES_DIR" "$LIBREDB_STUDIO_STORAGE_DIR"; do
+    if [[ ! -d "$dir" ]]; then
+      dokku_log_fail "Missing $dir. Run 'sudo dokku plugin:install' so the install trigger creates it"
+    fi
+  done
+}
+
+fn-libredb-studio-studio-type() {
+  declare desc="prints the Studio connection type for a datastore plugin, or fails when it is not supported"
+  declare SERVICE_TYPE="$1"
+  local pair
+  for pair in $LIBREDB_STUDIO_DATASTORES; do
+    if [[ "${pair%%:*}" == "$SERVICE_TYPE" ]]; then
+      echo "${pair#*:}"
+      return 0
+    fi
+  done
+  return 1
+}
+
+fn-libredb-studio-seed-id() {
+  declare desc="prints the seed connection id for a service: [a-z0-9-], at most 64 characters, unique per service"
+  declare SERVICE_TYPE="$1" SERVICE="$2"
+  local raw="dokku-$SERVICE_TYPE-$SERVICE" id hash
+
+  id="${raw,,}"
+  id="${id//[^a-z0-9-]/-}"
+  # a name that had to be changed, or cut, gets a digest of the original so two
+  # services can never share an id
+  if [[ "$id" != "$raw" ]] || ((${#id} > 64)); then
+    hash="$(printf '%s' "$raw" | sha256sum | cut -c1-8)"
+    id="${id:0:55}-$hash"
+  fi
+  echo "$id"
+}
+
+fn-libredb-studio-datastore-cmd() {
+  declare desc="runs a datastore plugin's own subcommand script, the way dokku dispatches it"
+  declare SERVICE_TYPE="$1" SUBCOMMAND="$2"
+  shift 2
+  local script="$PLUGIN_ENABLED_PATH/$SERVICE_TYPE/subcommands/$SUBCOMMAND"
+
+  if [[ ! -x "$script" ]]; then
+    dokku_log_warn "The $SERVICE_TYPE plugin has no $SUBCOMMAND command at $script"
+    return 1
+  fi
+  DOKKU_APP_NAME="" "$script" "$SERVICE_TYPE:$SUBCOMMAND" "$@"
+}
+
+fn-libredb-studio-service-info() {
+  declare desc="prints a service's info as one json object"
+  declare SERVICE_TYPE="$1" SERVICE="$2"
+  local info
+
+  # --format json and a single flag such as --dsn cannot be combined, so the
+  # whole report is read once and the fields are taken from it
+  if ! info="$(fn-libredb-studio-datastore-cmd "$SERVICE_TYPE" info "$SERVICE" --format json)"; then
+    dokku_log_warn "Could not read '$SERVICE_TYPE:info $SERVICE --format json'"
+    return 1
+  fi
+  if ! printf '%s' "$info" | jq -e 'type == "object" and (.dsn | type == "string") and .dsn != ""' >/dev/null 2>&1; then
+    dokku_log_warn "'$SERVICE_TYPE:info $SERVICE --format json' did not return a dsn. dokku-$SERVICE_TYPE 2.0.0 or later is required"
+    return 1
+  fi
+  printf '%s' "$info"
+}
+
+fn-libredb-studio-entry-json() {
+  declare desc="turns a service's info json on stdin into one Studio seed connection"
+  declare ID="$1" NAME="$2" STUDIO_TYPE="$3"
+
+  # The dsn carries the password, so it only ever travels on stdin and is never
+  # named in an error. Every account a dokku datastore hands out is the image's
+  # own (postgres is a superuser), so the connection is managed, which keeps the
+  # credentials on the server, and offered to admins only.
+  jq -c --arg id "$ID" --arg name "$NAME" --arg type "$STUDIO_TYPE" '
+    [(.dsn // "") | capture("^(?<scheme>[a-z][a-z0-9+.-]*)://(?<userinfo>.*)@(?<host>[^@/:?]+):(?<port>[0-9]+)(?<path>/[^?]*)?([?].*)?$")]
+    | if length == 0 then error("the dsn is not of the form scheme://user:password@host:port/database") else .[0] end
+    | . as $m
+    | ($m.userinfo | index(":")) as $colon
+    | (if $colon == null then $m.userinfo else $m.userinfo[:$colon] end) as $user
+    | (if $colon == null then "" else $m.userinfo[$colon + 1:] end) as $password
+    | ($m.path // "" | ltrimstr("/")) as $path
+    | {
+        id: $id,
+        name: $name,
+        type: $type,
+        host: $m.host,
+        port: ($m.port | tonumber),
+        group: "Dokku",
+        managed: true,
+        roles: ["admin"]
+      }
+      + (if $user != "" then {user: $user} else {} end)
+      + (if $password != "" then {password: $password} else {} end)
+      + (if $type != "redis" and $path != "" then {database: $path} else {} end)
+      + (if $type == "mongodb" and $path != "" then {authSource: $path} else {} end)
+      + (if $type == "postgres" then {ssl: {mode: "require"}} else {} end)
+  '
+}
+
+fn-libredb-studio-replace-file() {
+  declare desc="writes stdin to a file by renaming a private temporary file in the same directory over it"
+  declare FILE="$1"
+  local tmp
+
+  tmp="$(mktemp "$(dirname "$FILE")/.$(basename "$FILE").XXXXXX")" || return 1
+  # mktemp creates the file 0600; the content goes in before it is opened to the
+  # group, and the group is the dokku group that the directory and Studio share
+  if ! cat >"$tmp" || ! chmod 0640 "$tmp" || ! mv -f "$tmp" "$FILE"; then
+    rm -f "$tmp"
+    return 1
+  fi
+}
+
+fn-libredb-studio-assemble() {
+  declare desc="rebuilds the seed file Studio reads from every entry, under a lock"
+  (
+    if ! flock -w 30 9; then
+      dokku_log_warn "Timed out waiting for $LIBREDB_STUDIO_LOCK_FILE"
+      exit 1
+    fi
+
+    shopt -s nullglob
+    local entries=("$LIBREDB_STUDIO_ENTRIES_DIR"/*.json)
+
+    # Studio refuses a file with no connections, and reads a missing file as
+    # none, so the last entry going takes the file with it
+    if ((${#entries[@]} == 0)); then
+      rm -f "$LIBREDB_STUDIO_SEED_FILE"
+      exit 0
+    fi
+
+    local document
+    if ! document="$(jq -s '
+      if (map(.id) | unique | length) != length then error("two entries share a connection id") else . end
+      | {version: "1", connections: sort_by(.id)}
+    ' "${entries[@]}")"; then
+      dokku_log_warn "Could not assemble $LIBREDB_STUDIO_SEED_FILE; the previous file is kept"
+      exit 1
+    fi
+    printf '%s\n' "$document" | fn-libredb-studio-replace-file "$LIBREDB_STUDIO_SEED_FILE"
+  ) 9>>"$LIBREDB_STUDIO_LOCK_FILE"
+}
+
+fn-libredb-studio-list-contains() {
+  declare desc="reports whether a comma-separated list holds a value"
+  declare LIST="$1" VALUE="$2"
+  [[ ",$LIST," == *",$VALUE,"* ]]
+}
+
+fn-libredb-studio-list-without() {
+  declare desc="prints a comma-separated list without one value"
+  declare LIST="$1" VALUE="$2"
+  local item items=() result=()
+  IFS=',' read -ra items <<<"$LIST"
+  for item in "${items[@]}"; do
+    [[ -n "$item" ]] && [[ "$item" != "$VALUE" ]] && result+=("$item")
+  done
+  (
+    IFS=','
+    echo "${result[*]}"
+  )
+}
+
+fn-libredb-studio-attach-service() {
+  declare desc="puts a service on the Studio network now, and for every container the service is given later"
+  declare SERVICE_TYPE="$1" SERVICE="$2" ALIAS="$3"
+  local networks container="dokku.$SERVICE_TYPE.$SERVICE"
+
+  # the datastore attaches its post-create-network list, with the service's dns
+  # name as the alias, to every container it makes: on upgrade, on a start that
+  # replaces the container, on clone. That is what survives a restart
+  if ! networks="$(fn-libredb-studio-datastore-cmd "$SERVICE_TYPE" info "$SERVICE" --post-create-network)"; then
+    return 1
+  fi
+  if ! fn-libredb-studio-list-contains "$networks" "$LIBREDB_STUDIO_NETWORK"; then
+    networks="${networks:+$networks,}$LIBREDB_STUDIO_NETWORK"
+    fn-libredb-studio-datastore-cmd "$SERVICE_TYPE" set "$SERVICE" post-create-network "$networks" >/dev/null || return 1
+  fi
+
+  # the container running now was made before the property was set
+  if ! "$DOCKER_BIN" container inspect "$container" >/dev/null 2>&1; then
+    return 0
+  fi
+  if "$DOCKER_BIN" container inspect --format '{{json .NetworkSettings.Networks}}' "$container" |
+    jq -e --arg network "$LIBREDB_STUDIO_NETWORK" 'has($network)' >/dev/null; then
+    return 0
+  fi
+  "$DOCKER_BIN" network connect --alias "$ALIAS" "$LIBREDB_STUDIO_NETWORK" "$container" >/dev/null
+}
+
+fn-libredb-studio-detach-service() {
+  declare desc="takes a service off the Studio network and out of its post-create-network list"
+  declare SERVICE_TYPE="$1" SERVICE="$2"
+  local networks remaining container="dokku.$SERVICE_TYPE.$SERVICE"
+
+  if ! networks="$(fn-libredb-studio-datastore-cmd "$SERVICE_TYPE" info "$SERVICE" --post-create-network)"; then
+    return 1
+  fi
+  if fn-libredb-studio-list-contains "$networks" "$LIBREDB_STUDIO_NETWORK"; then
+    remaining="$(fn-libredb-studio-list-without "$networks" "$LIBREDB_STUDIO_NETWORK")"
+    if [[ -n "$remaining" ]]; then
+      fn-libredb-studio-datastore-cmd "$SERVICE_TYPE" set "$SERVICE" post-create-network "$remaining" >/dev/null || return 1
+    else
+      fn-libredb-studio-datastore-cmd "$SERVICE_TYPE" set "$SERVICE" post-create-network >/dev/null || return 1
+    fi
+  fi
+
+  if "$DOCKER_BIN" container inspect --format '{{json .NetworkSettings.Networks}}' "$container" 2>/dev/null |
+    jq -e --arg network "$LIBREDB_STUDIO_NETWORK" 'has($network)' >/dev/null; then
+    "$DOCKER_BIN" network disconnect "$LIBREDB_STUDIO_NETWORK" "$container" >/dev/null || return 1
+  fi
+}
+
+fn-libredb-studio-add-service() {
+  declare desc="attaches one service and writes its entry; the caller assembles the seed file"
+  declare SERVICE_TYPE="$1" SERVICE="$2"
+  local studio_type id info entry alias
+
+  if ! studio_type="$(fn-libredb-studio-studio-type "$SERVICE_TYPE")"; then
+    dokku_log_info2 "LibreDB Studio does not connect $SERVICE_TYPE services yet; $SERVICE was not added"
+    return 0
+  fi
+  id="$(fn-libredb-studio-seed-id "$SERVICE_TYPE" "$SERVICE")"
+
+  info="$(fn-libredb-studio-service-info "$SERVICE_TYPE" "$SERVICE")" || return 1
+  if ! entry="$(printf '%s' "$info" | fn-libredb-studio-entry-json "$id" "$SERVICE ($SERVICE_TYPE)" "$studio_type")"; then
+    dokku_log_warn "Could not build a Studio connection from '$SERVICE_TYPE:info $SERVICE'"
+    return 1
+  fi
+  alias="$(printf '%s' "$entry" | jq -r '.host')"
+
+  fn-libredb-studio-attach-service "$SERVICE_TYPE" "$SERVICE" "$alias" || {
+    dokku_log_warn "Could not put $SERVICE_TYPE service $SERVICE on the $LIBREDB_STUDIO_NETWORK network"
+    return 1
+  }
+  printf '%s\n' "$entry" | fn-libredb-studio-replace-file "$LIBREDB_STUDIO_ENTRIES_DIR/$id.json"
+}
+
+fn-libredb-studio-remove-service() {
+  declare desc="removes one service's entry; the caller assembles the seed file"
+  declare SERVICE_TYPE="$1" SERVICE="$2"
+  rm -f "$LIBREDB_STUDIO_ENTRIES_DIR/$(fn-libredb-studio-seed-id "$SERVICE_TYPE" "$SERVICE").json"
+}
+
+fn-libredb-studio-services() {
+  declare desc="prints type:service for every service the datastore plugins report"
+  # service-list is the trigger dokku-datastore answers for other plugins
+  # ("Lists the services other dokku plugins can see")
+  plugn trigger service-list | grep -E '^[a-z0-9-]+:[^[:space:]]+$' || true
+}
+
+fn-libredb-studio-sync() {
+  declare desc="writes an entry for every supported service, drops entries whose service is gone, and assembles"
+  local line service_type service id kept=() failed=() entry
+
+  while read -r line; do
+    [[ -z "$line" ]] && continue
+    service_type="${line%%:*}"
+    service="${line#*:}"
+    fn-libredb-studio-studio-type "$service_type" >/dev/null || {
+      dokku_log_verbose "Skipped $service_type service $service: not supported"
+      continue
+    }
+    id="$(fn-libredb-studio-seed-id "$service_type" "$service")"
+    # a service that fails keeps the entry it had, if any
+    kept+=("$id")
+    if fn-libredb-studio-add-service "$service_type" "$service"; then
+      dokku_log_verbose "Connected $service_type service $service as $id"
+    else
+      failed+=("$service_type:$service")
+    fi
+  done < <(fn-libredb-studio-services)
+
+  shopt -s nullglob
+  for entry in "$LIBREDB_STUDIO_ENTRIES_DIR"/*.json; do
+    id="$(basename "$entry" .json)"
+    if ! fn-in-array "$id" "${kept[@]}"; then
+      rm -f "$entry"
+      dokku_log_verbose "Removed $id: its service no longer exists"
+    fi
+  done
+  shopt -u nullglob
+
+  fn-libredb-studio-assemble || return 1
+  if ((${#failed[@]} > 0)); then
+    dokku_log_warn "These services could not be connected: ${failed[*]}"
+    return 1
+  fi
+}

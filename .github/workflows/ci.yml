@@ -1,0 +1,62 @@
+---
+name: "ci"
+
+# yamllint disable-line rule:truthy
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: test (dokku ${{ matrix.dokku_version }})
+    runs-on: ubuntu-24.04
+
+    strategy:
+      fail-fast: false
+      matrix:
+        dokku_version:
+          - 0.35.20
+          - 0.38.31
+
+    env:
+      DOKKU_VERSION: ${{ matrix.dokku_version }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7.0.1
+
+      - name: Bring up the test stack
+        run: make setup
+
+      - name: Run lint
+        run: make lint
+
+      - name: Run unit tests
+        run: make unit-tests
+
+      - name: Collect compose logs on failure
+        if: failure()
+        run: |
+          mkdir -p tmp
+          make logs > tmp/compose-logs.txt || true
+
+      - name: Upload compose logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: compose-logs-dokku-${{ matrix.dokku_version }}
+          path: tmp/compose-logs.txt
+          if-no-files-found: ignore
+
+      - name: Tear down the test stack
+        if: always()
+        run: make clean

@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/config"
+source "$PLUGIN_CORE_AVAILABLE_PATH/common/functions"
+source "$PLUGIN_CORE_AVAILABLE_PATH/common/property-functions"
+set -eo pipefail
+[[ $DOKKU_TRACE ]] && set -x
+
+trigger-libredb-studio-post-delete() {
+  declare desc="forgets the Studio app when it is destroyed, so new services are no longer attached for it"
+  declare trigger="post-delete"
+  declare APP="$1"
+
+  [[ -n "$APP" ]] || return 0
+  [[ "$(fn-plugin-property-get "$PLUGIN_COMMAND_PREFIX" "--global" "app" "")" == "$APP" ]] || return 0
+  fn-plugin-property-delete "$PLUGIN_COMMAND_PREFIX" "--global" "app"
+  dokku_log_warn "LibreDB Studio app $APP was destroyed. Datastore services stay on the $LIBREDB_STUDIO_NETWORK network until 'dokku libredb-studio:uninstall'"
+  return 0
+}
+
+trigger-libredb-studio-post-delete "$@"

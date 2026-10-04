@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# No set -e here on purpose. dokku-datastore fails the user's create or destroy
+# when this trigger exits non-zero ("failed to call service-action
+# post-create-complete trigger"), so nothing this plugin does may stop it.
+set -o pipefail
+[[ $DOKKU_TRACE ]] && set -x
+
+trigger-libredb-studio-service-action() {
+  declare desc="adds a datastore service to Studio when it is created, and removes it when it is destroyed"
+  declare trigger="service-action"
+  declare ACTION="$1" SERVICE_TYPE="$2" SERVICE="$3"
+  local plugin_root
+  plugin_root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+  # post-link and post-unlink are ignored: Studio never links to a service,
+  # because a linked service refuses to be destroyed
+  case "$ACTION" in
+    post-create-complete | post-delete) ;;
+    *) return 0 ;;
+  esac
+
+  # its own process, so that its set -e works and its failure is only a warning
+  if ! "$plugin_root/scripts/service-action" "$ACTION" "$SERVICE_TYPE" "$SERVICE"; then
+    echo " !     LibreDB Studio: could not update the connection for $SERVICE_TYPE service $SERVICE." 1>&2
+    echo " !     The $SERVICE_TYPE command itself was not affected. Retry with: dokku libredb-studio:sync" 1>&2
+  fi
+  return 0
+}
+
+trigger-libredb-studio-service-action "$@"
+exit 0

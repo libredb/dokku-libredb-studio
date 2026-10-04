@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+set -eo pipefail
+[[ $DOKKU_TRACE ]] && set -x
+
+cmd-libredb-studio-help() {
+  declare desc="help command"
+  declare CMD="$1"
+  local plugin_name="libredb-studio"
+  local plugin_description="Run LibreDB Studio connected to this host's datastore services"
+
+  if [[ "$CMD" == "${plugin_name}:help" ]]; then
+    echo -e "Usage: dokku ${plugin_name}[:COMMAND]"
+    echo ''
+    echo "$plugin_description"
+    echo ''
+    echo 'Additional commands:'
+    fn-help-content | sort | column -c2 -t -s,
+  elif [[ $(ps -o command= $PPID) == *"--all"* ]]; then
+    fn-help-content
+  else
+    cat <<help_desc
+    $plugin_name, $plugin_description
+help_desc
+  fi
+}
+
+fn-help-content() {
+  declare desc="return help content"
+  cat <<help_content
+    libredb-studio:info, Shows the Studio app, its network and the connections it is given
+    libredb-studio:install [<app>] [--image <image>] [--admin-email <email>] [--allow-http], Creates and deploys the Studio app and connects it to every datastore service
+    libredb-studio:sync, Rebuilds the connection list from every datastore service on the host
+    libredb-studio:uninstall, Detaches every datastore service from Studio and removes the connection list
+help_content
+}

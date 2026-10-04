@@ -1,0 +1,4 @@
+[plugin]
+description = "LibreDB Studio, a web database IDE that opens connected to this host's datastore services"
+version = "0.1.0"
+[plugin.config]

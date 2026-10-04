@@ -1,0 +1,192 @@
+#!/usr/bin/env bash
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/config"
+source "$PLUGIN_AVAILABLE_PATH/libredb-studio/internal-functions"
+set -eo pipefail
+[[ $DOKKU_TRACE ]] && set -x
+
+fn-libredb-studio-random-hex() {
+  declare desc="prints a random lowercase hex string of the given number of bytes"
+  declare BYTES="$1"
+  od -An -N"$BYTES" -tx1 /dev/urandom | tr -d ' \n'
+}
+
+cmd-libredb-studio-install() {
+  declare desc="creates and deploys the Studio app and connects it to every datastore service"
+  declare cmd="libredb-studio:install"
+  [[ "$1" == "$cmd" ]] && shift 1
+
+  local APP="" IMAGE="$LIBREDB_STUDIO_DEFAULT_IMAGE" ADMIN_EMAIL="admin@libredb.local" ALLOW_HTTP=false
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --image)
+        [[ -n "$2" ]] || dokku_log_fail "--image needs a value"
+        IMAGE="$2"
+        shift 2
+        ;;
+      --admin-email)
+        [[ -n "$2" ]] || dokku_log_fail "--admin-email needs a value"
+        ADMIN_EMAIL="$2"
+        shift 2
+        ;;
+      --allow-http)
+        ALLOW_HTTP=true
+        shift 1
+        ;;
+      --*)
+        dokku_log_fail "Unknown flag $1"
+        ;;
+      *)
+        [[ -z "$APP" ]] || dokku_log_fail "Only one app name may be given"
+        APP="$1"
+        shift 1
+        ;;
+    esac
+  done
+  APP="${APP:-$LIBREDB_STUDIO_DEFAULT_APP}"
+
+  fn-libredb-studio-require-dirs
+  local installed
+  installed="$(fn-libredb-studio-app)"
+  if [[ -n "$installed" ]] && fn-libredb-studio-dokku apps:exists "$installed" >/dev/null 2>&1; then
+    dokku_log_fail "LibreDB Studio is already installed as app $installed"
+  fi
+  if fn-libredb-studio-dokku apps:exists "$APP" >/dev/null 2>&1; then
+    dokku_log_fail "An app named $APP already exists. Pass another name: dokku $cmd <app>"
+  fi
+
+  local dokku_gid
+  dokku_gid="$(getent group "$DOKKU_SYSTEM_GROUP" | cut -d: -f3)"
+  [[ -n "$dokku_gid" ]] || dokku_log_fail "Could not find the id of group $DOKKU_SYSTEM_GROUP"
+
+  dokku_log_info1 "Creating app $APP"
+  fn-libredb-studio-dokku apps:create "$APP"
+
+  if ! fn-libredb-studio-dokku network:exists "$LIBREDB_STUDIO_NETWORK" >/dev/null 2>&1; then
+    fn-libredb-studio-dokku network:create "$LIBREDB_STUDIO_NETWORK"
+  fi
+  fn-libredb-studio-dokku network:set "$APP" attach-post-create "$LIBREDB_STUDIO_NETWORK"
+
+  # Run as the image's own user with the dokku group added. Started as root, the
+  # image's entrypoint drops to nextjs through gosu, which resets the
+  # supplementary groups, and the seed file is readable by the dokku group only.
+  fn-libredb-studio-dokku docker-options:add "$APP" deploy,run "--user $LIBREDB_STUDIO_UID:$LIBREDB_STUDIO_GID"
+  fn-libredb-studio-dokku docker-options:add "$APP" deploy,run "--group-add $dokku_gid"
+  fn-libredb-studio-dokku storage:mount "$APP" "$LIBREDB_STUDIO_HOST_ROOT/storage:$LIBREDB_STUDIO_DATA_MOUNT"
+  fn-libredb-studio-dokku storage:mount "$APP" "$LIBREDB_STUDIO_HOST_ROOT/seed:$LIBREDB_STUDIO_SEED_MOUNT:ro"
+  fn-libredb-studio-dokku ports:set "$APP" "http:80:$LIBREDB_STUDIO_PORT"
+
+  local admin_password config=()
+  admin_password="$(fn-libredb-studio-random-hex 16)"
+  config=(
+    "NEXT_PUBLIC_AUTH_PROVIDER=local"
+    "JWT_SECRET=$(fn-libredb-studio-random-hex 32)"
+    "ADMIN_EMAIL=$ADMIN_EMAIL"
+    "ADMIN_PASSWORD=$admin_password"
+    "STORAGE_PROVIDER=sqlite"
+    "STORAGE_SQLITE_PATH=$LIBREDB_STUDIO_DATA_MOUNT/libredb-storage.db"
+    "SEED_CONFIG_PATH=$LIBREDB_STUDIO_SEED_MOUNT/connections.json"
+  )
+  if [[ "$ALLOW_HTTP" == "true" ]]; then
+    config+=("AUTH_COOKIE_SECURE=false")
+  fi
+  # config:set prints every value it sets, the secrets included
+  fn-libredb-studio-dokku config:set --no-restart "$APP" "${config[@]}" >/dev/null
+
+  fn-plugin-property-write "$PLUGIN_COMMAND_PREFIX" "--global" "app" "$APP"
+  fn-plugin-property-write "$PLUGIN_COMMAND_PREFIX" "--global" "image" "$IMAGE"
+
+  dokku_log_info1 "Connecting the datastore services on this host"
+  local sync_failed=false
+  fn-libredb-studio-sync || sync_failed=true
+
+  dokku_log_info1 "Deploying $IMAGE"
+  fn-libredb-studio-dokku git:from-image "$APP" "$IMAGE"
+
+  dokku_log_info1 "LibreDB Studio is running"
+  dokku_log_verbose "URL:      $(fn-libredb-studio-dokku url "$APP")"
+  dokku_log_verbose "Email:    $ADMIN_EMAIL"
+  dokku_log_verbose "Password: $admin_password"
+  dokku_log_verbose "The password is shown once. Read it again with: dokku config:get $APP ADMIN_PASSWORD"
+  if [[ "$ALLOW_HTTP" != "true" ]]; then
+    dokku_log_warn "The login cookie is Secure, so sign-in needs https: dokku letsencrypt:enable $APP"
+    dokku_log_warn "On a trusted network only, allow plain http: dokku config:set $APP AUTH_COOKIE_SECURE=false"
+  fi
+  if [[ "$sync_failed" == "true" ]]; then
+    dokku_log_fail "Some services could not be connected; see above, then run 'dokku $PLUGIN_COMMAND_PREFIX:sync'"
+  fi
+}
+
+cmd-libredb-studio-sync() {
+  declare desc="rebuilds the connection list from every datastore service on the host"
+  declare cmd="libredb-studio:sync"
+  [[ "$1" == "$cmd" ]] && shift 1
+
+  fn-libredb-studio-require-dirs
+  [[ -n "$(fn-libredb-studio-app)" ]] || dokku_log_fail "LibreDB Studio is not installed. Run 'dokku $PLUGIN_COMMAND_PREFIX:install'"
+  fn-libredb-studio-dokku network:exists "$LIBREDB_STUDIO_NETWORK" >/dev/null 2>&1 ||
+    dokku_log_fail "The $LIBREDB_STUDIO_NETWORK network is missing. Create it with 'dokku network:create $LIBREDB_STUDIO_NETWORK', then run this again"
+
+  dokku_log_info1 "Connecting the datastore services on this host"
+  fn-libredb-studio-sync || dokku_log_fail "Some services could not be connected; see above"
+  dokku_log_verbose "Studio reads the new list within SEED_CACHE_TTL_MS (60 seconds by default)"
+}
+
+cmd-libredb-studio-info() {
+  declare desc="shows the Studio app, its network and the connections it is given"
+  declare cmd="libredb-studio:info"
+  [[ "$1" == "$cmd" ]] && shift 1
+
+  local app
+  app="$(fn-libredb-studio-app)"
+  dokku_log_info2_quiet "LibreDB Studio information"
+  dokku_log_verbose "$(printf "%-20s %s" "App:" "${app:-not installed}")"
+  dokku_log_verbose "$(printf "%-20s %s" "Image:" "$(fn-plugin-property-get "$PLUGIN_COMMAND_PREFIX" "--global" "image" "")")"
+  dokku_log_verbose "$(printf "%-20s %s" "Network:" "$LIBREDB_STUDIO_NETWORK")"
+  dokku_log_verbose "$(printf "%-20s %s" "Seed file:" "$LIBREDB_STUDIO_SEED_FILE")"
+
+  if [[ ! -f "$LIBREDB_STUDIO_SEED_FILE" ]]; then
+    dokku_log_verbose "$(printf "%-20s %s" "Connections:" "none")"
+    return 0
+  fi
+  dokku_log_info2_quiet "Connections (credentials are not shown)"
+  # every field but the credentials
+  jq -r '.connections[] | [.id, .type, "\(.host):\(.port)", (.database // "-")] | @tsv' "$LIBREDB_STUDIO_SEED_FILE" |
+    column -t -s $'\t' | sed 's/^/       /'
+}
+
+cmd-libredb-studio-uninstall() {
+  declare desc="detaches every datastore service from Studio and removes the connection list"
+  declare cmd="libredb-studio:uninstall"
+  [[ "$1" == "$cmd" ]] && shift 1
+
+  local line service_type service failed=() app
+  while read -r line; do
+    [[ -z "$line" ]] && continue
+    service_type="${line%%:*}"
+    service="${line#*:}"
+    fn-libredb-studio-studio-type "$service_type" >/dev/null || continue
+    if fn-libredb-studio-detach-service "$service_type" "$service"; then
+      dokku_log_verbose "Detached $service_type service $service"
+    else
+      failed+=("$service_type:$service")
+    fi
+  done < <(fn-libredb-studio-services)
+
+  rm -f "$LIBREDB_STUDIO_ENTRIES_DIR"/*.json
+  fn-libredb-studio-assemble
+
+  app="$(fn-libredb-studio-app)"
+  fn-plugin-property-delete "$PLUGIN_COMMAND_PREFIX" "--global" "app"
+  fn-plugin-property-delete "$PLUGIN_COMMAND_PREFIX" "--global" "image"
+
+  if ((${#failed[@]} > 0)); then
+    dokku_log_fail "These services could not be detached: ${failed[*]}"
+  fi
+  dokku_log_info1 "LibreDB Studio no longer receives connections"
+  if [[ -n "$app" ]]; then
+    dokku_log_verbose "The app and its data are kept. Remove them with:"
+    dokku_log_verbose "  dokku apps:destroy $app"
+    dokku_log_verbose "  dokku network:destroy $LIBREDB_STUDIO_NETWORK"
+    dokku_log_verbose "  sudo rm -rf $LIBREDB_STUDIO_STORAGE_DIR/*"
+  fi
+}

@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+export PLUGIN_COMMAND_PREFIX="libredb-studio"
+export DOKKU_LIB_HOST_ROOT=${DOKKU_LIB_HOST_ROOT:=$DOKKU_LIB_ROOT}
+
+# Where the plugin keeps its state on the dokku host, and the same directory as
+# the docker daemon sees it. The two differ only when dokku itself runs in a
+# container, where bind mounts must name the host path.
+export LIBREDB_STUDIO_ROOT=${LIBREDB_STUDIO_ROOT:="$DOKKU_LIB_ROOT/data/$PLUGIN_COMMAND_PREFIX"}
+export LIBREDB_STUDIO_HOST_ROOT=${LIBREDB_STUDIO_HOST_ROOT:="$DOKKU_LIB_HOST_ROOT/data/$PLUGIN_COMMAND_PREFIX"}
+
+# seed/ is mounted read-only into Studio and holds only the assembled file.
+# entries/ holds one fragment per datastore service and is never mounted.
+# storage/ is Studio's own sqlite store, owned by the image's user.
+export LIBREDB_STUDIO_SEED_DIR="$LIBREDB_STUDIO_ROOT/seed"
+export LIBREDB_STUDIO_SEED_FILE="$LIBREDB_STUDIO_SEED_DIR/connections.json"
+export LIBREDB_STUDIO_ENTRIES_DIR="$LIBREDB_STUDIO_ROOT/entries"
+export LIBREDB_STUDIO_STORAGE_DIR="$LIBREDB_STUDIO_ROOT/storage"
+export LIBREDB_STUDIO_LOCK_FILE="$LIBREDB_STUDIO_ROOT/seed.lock"
+
+export LIBREDB_STUDIO_DEFAULT_APP="libredb-studio"
+export LIBREDB_STUDIO_DEFAULT_IMAGE="ghcr.io/libredb/libredb-studio:0.17.0"
+export LIBREDB_STUDIO_NETWORK="libredb-studio"
+
+# The image runs as nextjs (1001) in group nodejs (1001).
+export LIBREDB_STUDIO_UID="1001"
+export LIBREDB_STUDIO_GID="1001"
+export LIBREDB_STUDIO_PORT="3000"
+export LIBREDB_STUDIO_SEED_MOUNT="/run/libredb-seed"
+export LIBREDB_STUDIO_DATA_MOUNT="/app/data"
+
+# dokku datastore plugin name and the Studio connection type it maps to
+export LIBREDB_STUDIO_DATASTORES="postgres:postgres mysql:mysql mariadb:mysql mongo:mongodb redis:redis"
