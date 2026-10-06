@@ -133,6 +133,56 @@ fn-libredb-studio-replace-file() {
   fi
 }
 
+fn-libredb-studio-login() {
+  declare desc="prints the admin email and password an install signs in with: the kept login, or a new one to keep after the deploy"
+  declare REQUESTED_EMAIL="$1" NEW_PASSWORD="$2"
+  local email password
+
+  if [[ "$REQUESTED_EMAIL" == *$'\n'* ]] || [[ "$REQUESTED_EMAIL" == *$'\r'* ]]; then
+    dokku_log_warn "The admin email must be a single line"
+    return 1
+  fi
+  if [[ -f "$LIBREDB_STUDIO_LOGIN_FILE" ]]; then
+    if [[ "$(grep -c '^admin_email=' "$LIBREDB_STUDIO_LOGIN_FILE")" != "1" ]] ||
+      [[ "$(grep -c '^admin_password=' "$LIBREDB_STUDIO_LOGIN_FILE")" != "1" ]]; then
+      dokku_log_warn "$LIBREDB_STUDIO_LOGIN_FILE must hold exactly one admin_email and one admin_password line"
+      return 1
+    fi
+    email="$(sed -n 's/^admin_email=//p' "$LIBREDB_STUDIO_LOGIN_FILE")"
+    password="$(sed -n 's/^admin_password=//p' "$LIBREDB_STUDIO_LOGIN_FILE")"
+    if [[ -z "$email" ]] || [[ -z "$password" ]]; then
+      dokku_log_warn "$LIBREDB_STUDIO_LOGIN_FILE has an empty admin_email or admin_password"
+      return 1
+    fi
+    if [[ -n "$REQUESTED_EMAIL" ]] && [[ "$REQUESTED_EMAIL" != "$email" ]]; then
+      dokku_log_warn "$LIBREDB_STUDIO_LOGIN_FILE keeps the login of $email, not $REQUESTED_EMAIL"
+      return 1
+    fi
+  else
+    if [[ -z "$NEW_PASSWORD" ]]; then
+      dokku_log_warn "No password was generated for the new login"
+      return 1
+    fi
+    email="${REQUESTED_EMAIL:-$LIBREDB_STUDIO_DEFAULT_ADMIN_EMAIL}"
+    password="$NEW_PASSWORD"
+  fi
+  printf '%s\n%s\n' "$email" "$password"
+}
+
+fn-libredb-studio-keep-login() {
+  declare desc="keeps a new login for later installs, readable by its owner only"
+  declare EMAIL="$1" PASSWORD="$2"
+  local tmp
+
+  # mktemp creates the file 0600, and the rename keeps that mode
+  tmp="$(mktemp "$(dirname "$LIBREDB_STUDIO_LOGIN_FILE")/.login.env.XXXXXX")" || return 1
+  if ! printf 'admin_email=%s\nadmin_password=%s\n' "$EMAIL" "$PASSWORD" >"$tmp" ||
+    ! mv -f "$tmp" "$LIBREDB_STUDIO_LOGIN_FILE"; then
+    rm -f "$tmp"
+    return 1
+  fi
+}
+
 fn-libredb-studio-require-system-user() {
   declare desc="runs the calling script again as the dokku user when root runs it, and refuses any other user"
   declare SCRIPT="$1"

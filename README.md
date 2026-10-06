@@ -20,7 +20,13 @@ dokku libredb-studio:install
 `plugin:install` needs a running Docker daemon, because its install trigger creates the `libredb-studio` network.
 
 `libredb-studio:install` creates the app `libredb-studio`, deploys `ghcr.io/libredb/libredb-studio:0.18.0`, connects every existing service and prints the admin email and a generated password.
-The password is shown once; read it again with `dokku config:get libredb-studio ADMIN_PASSWORD`.
+Read it again with `dokku config:get libredb-studio ADMIN_PASSWORD`.
+Studio 0.18.0 and later store that login in their own data on their first start, and take the admin password from the app's environment only then, so change it in Studio after that.
+The plugin keeps the login of the first install in `/var/lib/dokku/data/libredb-studio/login.env`, so a later `libredb-studio:install`, after `dokku apps:destroy libredb-studio` for example, signs in with the same login and prints it again.
+A later install with another `--admin-email` fails, because a login is already kept.
+
+If the admin password is lost, run `dokku config:set libredb-studio ADMIN_PASSWORD_RESET=true`, sign in with the password `dokku config:get libredb-studio ADMIN_PASSWORD` prints, then run `dokku config:unset libredb-studio ADMIN_PASSWORD_RESET`.
+While it is set, every restart applies the reset again, which also enables the admin account, removes its passkeys and, unless `ADMIN_TOTP_SECRET` is set, its second factor, and ends its sessions.
 
 The login cookie is Secure, so sign-in needs https:
 
@@ -95,7 +101,9 @@ sudo dokku plugin:uninstall libredb-studio    # detach every service, delete the
 ```
 
 `plugin:uninstall` keeps the network while the Studio app still exists, because the app is attached to it, and prints the two commands that remove both.
-Studio's own data in `/var/lib/dokku/data/libredb-studio/storage/` is always kept.
+Studio's own data in `/var/lib/dokku/data/libredb-studio/storage/` is always kept, and so is `login.env` beside it, because that data still holds the admin account the login signs in to.
+To forget Studio entirely, remove both, with the glob expanded as root: `sudo sh -c 'rm -rf /var/lib/dokku/data/libredb-studio/storage/* /var/lib/dokku/data/libredb-studio/login.env'`.
+Never remove `login.env` alone: the next install would print a new password that Studio's kept account ignores, and only the `ADMIN_PASSWORD_RESET` steps above would let the admin in again.
 
 If one service is permanently broken and cannot be detached, each of these commands fails and names it.
 Fix that service, or destroy it with `dokku <type>:destroy <service>`, or take `libredb-studio` out of its list by hand:
@@ -123,6 +131,7 @@ The directory, not the file, is mounted read-only at `/run/libredb-seed`, so Stu
 
 Studio runs as the image's user, `1001:1001`, with the `dokku` group added, which is what lets it read the seed file.
 Its own data lives in `/var/lib/dokku/data/libredb-studio/storage/`, owned by `1001` with mode `0700`.
+The login of the first install is kept in `/var/lib/dokku/data/libredb-studio/login.env`, owned by `dokku` with mode `0600`.
 
 `libredb-studio:install` passes the generated `JWT_SECRET` and `ADMIN_PASSWORD` to `dokku config:set` as arguments, as every `config:set` does, so a local user can see them in the process list while that one command runs.
 Its output is discarded, so they are not printed with the rest of the configuration.

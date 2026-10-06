@@ -62,3 +62,25 @@ teardown() {
   [[ "$output" != *"libredb-studio"* ]]
   destroy_service postgres "$other"
 }
+
+@test "a reinstall after the app is destroyed signs in with the first install's login" {
+  local first jar="$BATS_TEST_TMPDIR/jar"
+  first="$(dokku config:get "$STUDIO_APP" ADMIN_PASSWORD)"
+  dokku --force apps:destroy "$STUDIO_APP"
+
+  run dokku libredb-studio:install --allow-http
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"This is the login of the first install"* ]]
+  [ "$(dokku config:get "$STUDIO_APP" ADMIN_PASSWORD)" = "$first" ]
+  wait_for 60 studio_login "$jar"
+}
+
+@test "a reinstall that asks for another admin email fails, names the kept admin and creates no app" {
+  dokku --force apps:destroy "$STUDIO_APP"
+
+  run dokku libredb-studio:install --allow-http --admin-email other@example.test
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"admin@libredb.local"* ]]
+  run dokku apps:exists "$STUDIO_APP"
+  [ "$status" -ne 0 ]
+}

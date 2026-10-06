@@ -30,6 +30,14 @@ export LIBREDB_STUDIO_LOCK_TIMEOUT=${LIBREDB_STUDIO_LOCK_TIMEOUT:="120"}
 # under a name no app can have: an app name begins with a letter or a digit.
 export LIBREDB_STUDIO_PROPERTIES="_libredb-studio"
 
+# LibreDB Studio 0.18.0 and later keep their accounts in the storage directory,
+# which outlives the app, and take ADMIN_EMAIL and ADMIN_PASSWORD only on their
+# first start. The login of the first install is kept here, readable by the
+# dokku user only, so a reinstall signs in with it instead of with a new
+# password that Studio would ignore.
+export LIBREDB_STUDIO_LOGIN_FILE="$LIBREDB_STUDIO_ROOT/login.env"
+export LIBREDB_STUDIO_DEFAULT_ADMIN_EMAIL="admin@libredb.local"
+
 export LIBREDB_STUDIO_DEFAULT_APP="libredb-studio"
 export LIBREDB_STUDIO_DEFAULT_IMAGE="ghcr.io/libredb/libredb-studio:0.18.0"
 export LIBREDB_STUDIO_NETWORK="libredb-studio"

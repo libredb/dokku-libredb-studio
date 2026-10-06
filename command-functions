@@ -15,7 +15,7 @@ cmd-libredb-studio-install() {
   declare cmd="libredb-studio:install"
   [[ "$1" == "$cmd" ]] && shift 1
 
-  local APP="" IMAGE="$LIBREDB_STUDIO_DEFAULT_IMAGE" ADMIN_EMAIL="admin@libredb.local" ALLOW_HTTP=false
+  local APP="" IMAGE="$LIBREDB_STUDIO_DEFAULT_IMAGE" ADMIN_EMAIL="" ALLOW_HTTP=false
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --image)
@@ -54,6 +54,18 @@ cmd-libredb-studio-install() {
     dokku_log_fail "An app named $APP already exists. Pass another name: dokku $cmd <app>"
   fi
 
+  # Studio keeps its accounts in the storage directory and takes the login from
+  # the environment on its first start only, so every install after the first
+  # signs in with the login the first one kept
+  local login login_kept=false admin_password new_password
+  [[ -f "$LIBREDB_STUDIO_LOGIN_FILE" ]] && login_kept=true
+  new_password="$(fn-libredb-studio-random-hex 16)"
+  if ! login="$(fn-libredb-studio-login "$ADMIN_EMAIL" "$new_password")"; then
+    dokku_log_fail "See above. Install again without --admin-email to keep that login, or start over, which deletes Studio's saved data and accounts: sudo sh -c 'rm -rf $LIBREDB_STUDIO_STORAGE_DIR/* $LIBREDB_STUDIO_LOGIN_FILE'"
+  fi
+  ADMIN_EMAIL="${login%%$'\n'*}"
+  admin_password="${login#*$'\n'}"
+
   local dokku_gid
   dokku_gid="$(getent group "$DOKKU_SYSTEM_GROUP" | cut -d: -f3)"
   [[ -n "$dokku_gid" ]] || dokku_log_fail "Could not find the id of group $DOKKU_SYSTEM_GROUP"
@@ -73,8 +85,7 @@ cmd-libredb-studio-install() {
   fn-libredb-studio-dokku storage:mount "$APP" "$LIBREDB_STUDIO_HOST_ROOT/seed:$LIBREDB_STUDIO_SEED_MOUNT:ro"
   fn-libredb-studio-dokku ports:set "$APP" "http:80:$LIBREDB_STUDIO_PORT"
 
-  local admin_password config=()
-  admin_password="$(fn-libredb-studio-random-hex 16)"
+  local config=()
   config=(
     "NEXT_PUBLIC_AUTH_PROVIDER=local"
     "JWT_SECRET=$(fn-libredb-studio-random-hex 32)"
@@ -99,12 +110,22 @@ cmd-libredb-studio-install() {
 
   dokku_log_info1 "Deploying $IMAGE"
   fn-libredb-studio-dokku git:from-image "$APP" "$IMAGE"
+  # kept only once Studio is deployed: before that it has seeded no account,
+  # so a failed first install may be retried with another --admin-email
+  if [[ "$login_kept" != "true" ]]; then
+    fn-libredb-studio-keep-login "$ADMIN_EMAIL" "$admin_password" ||
+      dokku_log_fail "Studio is deployed, but its login could not be written to $LIBREDB_STUDIO_LOGIN_FILE, so a later install would print a password Studio ignores"
+  fi
 
   dokku_log_info1 "LibreDB Studio is running"
   dokku_log_verbose "URL:      $(fn-libredb-studio-dokku url "$APP")"
   dokku_log_verbose "Email:    $ADMIN_EMAIL"
   dokku_log_verbose "Password: $admin_password"
-  dokku_log_verbose "The password is shown once. Read it again with: dokku config:get $APP ADMIN_PASSWORD"
+  if [[ "$login_kept" == "true" ]]; then
+    dokku_log_verbose "This is the login of the first install, kept in $LIBREDB_STUDIO_LOGIN_FILE: Studio keeps its accounts in $LIBREDB_STUDIO_STORAGE_DIR, and a password changed in Studio since then is the one that signs in"
+  else
+    dokku_log_verbose "Read it again with: dokku config:get $APP ADMIN_PASSWORD. Studio stores it on its first start; change it in Studio after that"
+  fi
   if [[ "$ALLOW_HTTP" != "true" ]]; then
     dokku_log_warn "The login cookie is Secure, so sign-in needs https: dokku letsencrypt:enable $APP"
     dokku_log_warn "On a trusted network only, allow plain http: dokku config:set $APP AUTH_COOKIE_SECURE=false"
