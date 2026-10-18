@@ -39,7 +39,7 @@ export LIBREDB_STUDIO_LOGIN_FILE="$LIBREDB_STUDIO_ROOT/login.env"
 export LIBREDB_STUDIO_DEFAULT_ADMIN_EMAIL="admin@libredb.local"
 
 export LIBREDB_STUDIO_DEFAULT_APP="libredb-studio"
-export LIBREDB_STUDIO_DEFAULT_IMAGE="ghcr.io/libredb/libredb-studio:0.18.3"
+export LIBREDB_STUDIO_DEFAULT_IMAGE="ghcr.io/libredb/libredb-studio:1.0.0"
 export LIBREDB_STUDIO_NETWORK="libredb-studio"
 
 # The image runs as nextjs (1001) in group nodejs (1001).
